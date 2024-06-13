@@ -2,6 +2,8 @@
 #define PJPPROJECT_LEXER_HPP
 
 #include <iostream>
+#include <vector>
+#include <optional>
 
 class Lexer {
 public:
@@ -10,10 +12,12 @@ public:
 
     int gettok();
     const std::string& identifierStr() const { return this->m_IdentifierStr; }
+
     int numVal() { return this->m_NumVal; }
 private:
     std::string m_IdentifierStr;
     int m_NumVal;
+    std::vector<int> m_Tokens;
 };
 
 
@@ -21,7 +25,10 @@ private:
  * Lexer returns tokens [0-255] if it is an unknown character, otherwise one of these for known things.
  * Here are all valid tokens:
  */
-enum Token {
+
+
+
+enum TokenType {
     tok_eof =           -1,
 
     // numbers and identifiers
@@ -67,5 +74,9 @@ enum Token {
     // keywords for array
     tok_array =         -32
 };
+
+
+
+
 
 #endif //PJPPROJECT_LEXER_HPP
