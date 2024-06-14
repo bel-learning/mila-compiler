@@ -1,4 +1,5 @@
 build
+.vscode
 samples/*
 !samples/*.mila
 .idea

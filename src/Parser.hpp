@@ -21,7 +21,8 @@ public:
     Parser();
     ~Parser() = default;
 
-    bool Parse();                    // parse
+    bool Parse();             // parse
+    void initLexer(std::istream& ifs);  // initialize lexer
     const llvm::Module& Generate();  // generate
 
 private:

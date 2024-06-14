@@ -6,28 +6,16 @@
 #define PJPPROJECT_PARSER_HPP
 
 #include<Lexer.hpp>
-
-class Position {
-    unsigned m_line;
-    unsigned m_col;
-
-public:
-    Position();
-    Position(const Position& other);
-
-    friend std::ostream& operator<<(std::ostream& os, const Position& tk) noexcept;
-    void advance();
-    void line();
-};
+#include<Position.hpp>
 
 
 class Token {
-    TokenType m_tokenType;
+    int m_tokenType;
     std::optional<int> m_intValue;
     Position m_position;
 public:
-    Token(TokenType type, const Position& position, const std::optional<int>& intValue);
-    TokenType type() const;
+    Token(int type, const Position& position, const std::optional<int>& intValue = std::nullopt);
+    int type() const;
     std::optional<int> value() const;
     const Position& position() const;
 };

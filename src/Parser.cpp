@@ -7,11 +7,87 @@ Parser::Parser()
 {
 }
 
+
+
 bool Parser::Parse()
 {
-    getNextToken();
+    std::map<int, std::string> tokenMap = {
+            {-1, "tok_eof"},
+            {-2, "tok_identifier"},
+            {-3, "tok_number"},
+            {-4, "tok_begin"},
+            {-5, "tok_end"},
+            {-6, "tok_const"},
+            {-7, "tok_procedure"},
+            {-8, "tok_forward"},
+            {-9, "tok_function"},
+            {-10, "tok_if"},
+            {-11, "tok_then"},
+            {-12, "tok_else"},
+            {-13, "tok_program"},
+            {-14, "tok_while"},
+            {-15, "tok_exit"},
+            {-16, "tok_var"},
+            {-17, "tok_integer"},
+            {-18, "tok_for"},
+            {-19, "tok_do"},
+            {-20, "!="},
+            {-21, "<="},
+            {-22, ">="},
+            {-23, ":="},
+            {-24, "||"},
+            {-25, "tok_mod"},
+            {-26, "tok_div"},
+            {-27, "tok_not"},
+            {-28, "tok_and"},
+            {-29, "tok_xor"},
+            {-30, "tok_to"},
+            {-31, "tok_downto"},
+            {-32, "tok_array"},
+            {'+', "+"},
+            {'-', "-"},
+            {'*', "*"},
+            {'/', "/"},
+            {'(', "("},
+            {')', ")"},
+            {'{', "{"},
+            {'}', "}"},
+            {'[', "["},
+            {']', "]"},
+            {',', ","},
+            {';', ";"},
+            {'>', ">"},
+            {'<', "<"},
+            {'=', "="},
+            {'!', "!"},
+            {'|', "|"},
+            {'&', "&"},
+            {'^', "^"},
+            {':', ":"}
+    };
+    std::cout << "Tokens: " << std::endl;
+    while (CurTok != tok_eof) {
+        getNextToken();
+        if(tokenMap.find(CurTok) == tokenMap.end()) {
+            std::cout << "Not known token: " << CurTok << std::endl;
+            return false;
+        };
+        if(CurTok == TokenType::tok_identifier) {
+            std::cout << ">" << m_Lexer.identifierStr() << "<" << ", ";
+        }
+        else
+            std::cout << ">" << tokenMap[CurTok]  << "<" << ", ";
+    }
+    std::cout << std::endl << "-----------------" << std::endl;
+    std::cout << std::endl;
     return true;
 }
+
+void Parser::initLexer(std::istream& ifs) {
+    m_Lexer.initialize();
+    m_Lexer.initStream(ifs);
+};  // initialize lexer
+
 
 const llvm::Module& Parser::Generate()
 {
