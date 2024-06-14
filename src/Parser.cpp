@@ -7,10 +7,7 @@ Parser::Parser()
 {
 }
 
-
-
-bool Parser::Parse()
-{
+void Parser::printCurrentToken() {
     std::map<int, std::string> tokenMap = {
             {-1, "tok_eof"},
             {-2, "tok_identifier"},
@@ -65,21 +62,25 @@ bool Parser::Parse()
             {'^', "^"},
             {':', ":"}
     };
-    std::cout << "Tokens: " << std::endl;
-    while (CurTok != tok_eof) {
-        getNextToken();
-        if(tokenMap.find(CurTok) == tokenMap.end()) {
-            std::cout << "Not known token: " << CurTok << std::endl;
-            return false;
-        };
-        if(CurTok == TokenType::tok_identifier) {
-            std::cout << ">" << m_Lexer.identifierStr() << "<" << ", ";
-        }
-        else
-            std::cout << ">" << tokenMap[CurTok]  << "<" << ", ";
+
+    if(tokenMap.find(CurTok) == tokenMap.end()) {
+        std::cout << "Not known token: " << CurTok << std::endl;
+        return;
+    };
+    if(CurTok == TokenType::tok_identifier) {
+        std::cout << ">" << m_Lexer.identifierStr() << "<" << ", ";
     }
-    std::cout << std::endl << "-----------------" << std::endl;
-    std::cout << std::endl;
+    else
+        std::cout << ">" << tokenMap[CurTok]  << "<" << ", ";
+}
+
+bool Parser::Parse()
+{
+
+    while (CurTok != tok_eof) {
+        printCurrentToken();
+        getNextToken();
+    }
     return true;
 }
 
@@ -133,3 +134,54 @@ int Parser::getNextToken()
 {
     return CurTok = m_Lexer.gettok();
 }
+
+
+std::unique_ptr<ExprAST> Parser::Lmax() {
+    auto result = L4();
+
+    return result;
+}
+std::unique_ptr<ExprAST> Parser::L4() {
+
+}
+std::unique_ptr<ExprAST> Parser::L3() {
+
+}
+std::unique_ptr<ExprAST> Parser::L2() {
+
+}
+std::unique_ptr<ExprAST> Parser::L1() {
+
+}
+std::unique_ptr<ExprAST> Parser::L0() {
+
+}
+
+/// numberexpr ::= number
+std::unique_ptr<ExprAST> Parser::ParseNumberExpr() {
+    auto result = std::make_unique<NumberExprAST>(CurTok);
+    getNextToken(); // consume the number
+    return std::move(result);
+}
+
+std::unique_ptr<ExprAST> Parser::ParseParenExpr() {
+    getNextToken(); // consume '('
+    auto result = ParseExpression();
+    if (!result)
+        return nullptr;
+    consume(TokenType::tok_rparen);
+
+    return result;
+}
+/**
+ * @brief Simple consumer.
+ *
+ * Checks if the token we want to consume is equal to CurTok and consumes it.
+ */
+bool Parser::consume(int token) {
+    if(token != CurTok) {
+        return false;
+    }
+    getNextToken();
+    return true;
+};

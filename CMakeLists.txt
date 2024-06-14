@@ -18,7 +18,9 @@ message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/)
 add_executable(mila src/main.cpp src/Lexer.hpp src/Lexer.cpp src/Parser.hpp src/Parser.cpp
         src/Token.hpp
-        src/Token.cpp)
+        src/Token.cpp
+        src/AST.cpp
+        src/AST.hpp)
 
 target_include_directories(mila PRIVATE ${LLVM_INCLUDE_DIRS})
 
