@@ -76,11 +76,12 @@ int Lexer::gettok()
 //        std::cout << std::endl <<"lastChar: >" << static_cast<char>(lastChar) << "<" << std::endl;
         lastChar = m_ifs->get();
 //        std::cout << "nextChar: >" << static_cast<char>(lastChar) << "<" << std::endl;
+        // if matches m_2char_operators
         if(m_2char_operators.find( op + static_cast<char>(lastChar) ) != m_2char_operators.end()) {
-            m_ifs->get();
-            return m_2char_operators[op + static_cast<char>(lastChar) ];
+            std::string returnValue(op + static_cast<char>(lastChar));
+            lastChar = m_ifs->get();
+            return m_2char_operators[returnValue];
         }
-
         return m_1char_operators[op[0]];
     }
     

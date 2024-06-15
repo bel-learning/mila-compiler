@@ -41,6 +41,7 @@ enum TokenType {
     tok_greaterequal =  -22,
     tok_assign =        -23,
     tok_or =            -24,
+    tok_range =         -33,
 
     // 3-character operators (keywords)
     tok_mod =           -25,
@@ -79,7 +80,8 @@ enum TokenType {
     tok_caret =         '^',
     tok_colon =         ':',
     tok_dquote =        '"',
-    tok_squote =        '\''
+    tok_squote =        '\'',
+    tok_dot =           '.',
 };
 
 
@@ -141,6 +143,7 @@ private:
         m_2char_operators[">="] = tok_greaterequal;
         m_2char_operators[":="] = tok_assign;
         m_2char_operators["||"] = tok_or;
+        m_2char_operators[".."] = tok_range;
     }
 
     std::map<std::string, TokenType> m_3char_operators;
@@ -178,6 +181,7 @@ private:
         m_1char_operators[':'] = tok_colon;
         m_1char_operators['"'] = tok_dquote;
         m_1char_operators['\''] = tok_squote;
+        m_1char_operators['.'] = tok_dot;
 
     }
 
