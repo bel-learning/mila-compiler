@@ -7,8 +7,37 @@
 #include <iostream>
 #include <memory>
 
+#include <llvm/ADT/APFloat.h>
+#include <llvm/ADT/STLExtras.h>
+#include <llvm/IR/BasicBlock.h>
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/DerivedTypes.h>
+#include <llvm/IR/Function.h>
+#include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/LegacyPassManager.h>
+#include <llvm/IR/Module.h>
+#include <llvm/IR/Type.h>
+#include <llvm/IR/Verifier.h>
+
 #ifndef MILA_AST_HPP
 #define MILA_AST_HPP
+
+class TypeAST;
+
+struct Symbol { llvm::AllocaInst* store; TypeAST* type; };
+using SymbolTable = std::map<std::string, Symbol>;
+
+struct GenContext {
+    GenContext(const std::string& moduleName);
+
+    llvm::LLVMContext * ctx;
+    llvm::IRBuilder<> * builder;
+    llvm::Module * module;
+
+    SymbolTable * symbTable;
+};
+
 
 class AST {
 public:
@@ -19,14 +48,24 @@ public:
         ast.print(out);
         return out;
     }
+    virtual llvm::Value * codegen(GenContext& gen ) = 0;
+};
+
+class ExprAST : public AST {
+public:
+    virtual ~ExprAST() = default;
+    virtual void print(std::ostream &out, int indent = 0) const = 0;
+    llvm::Value * codegen(GenContext& gen) override = 0;
 };
 
 class StatementAST : public AST {
 public:
     virtual ~StatementAST() = default;
+    virtual void print(std::ostream &out, int indent = 0) const = 0;
+    llvm::Value * codegen(GenContext& gen) override = 0;
 };
 
-class BlockAST : public AST {
+class BlockAST : public StatementAST {
     std::vector<std::unique_ptr<AST>> m_Body;
 public:
     BlockAST(std::vector<std::unique_ptr<AST>> body) : m_Body(std::move(body)) {}
@@ -40,9 +79,28 @@ public:
         }
         out << std::string(indent, ' ') << "}";
     }
+    llvm::Value * codegen(GenContext& gen) override {
+
+    };
 };
 
-class NumberExprAST : public AST {
+class TypeAST : public AST {
+public:
+    enum class Type { INT,
+        DOUBLE,
+    };
+    TypeAST(Type type) : m_type(type) {};
+//    void print(std::ostream& os, unsigned indent = 0) const override;
+//    llvm::Value* codegen(GenContext& gen) const override;
+    void print(std::ostream &out, int indent = 0) const override {
+        out << std::string(indent, ' ') << " Type: " << "INT" << "\n";
+    }
+    llvm::Value * codegen(GenContext& gen) override;
+private:
+    Type m_type;
+};
+
+class NumberExprAST : public ExprAST {
     double m_Val;
 public:
     NumberExprAST(double val) : m_Val(val) {}
@@ -53,28 +111,16 @@ public:
         out << std::string(indent + 2, ' ') << "\"value\": " << m_Val << "\n";
         out << std::string(indent, ' ') << "}";
     }
-};
-
-/// VariableExprAST - Expression class for referencing a variable, like "a".
-class VariableExprAST : public AST {
-    std::string Name;
-
-public:
-    VariableExprAST(std::string Name) : Name(std::move(Name)) {}
-
-    void print(std::ostream &out, int indent = 0) const override {
-        out << std::string(indent, ' ') << "{\n";
-        out << std::string(indent + 2, ' ') << "\"type\": \"VariableExprAST\",\n";
-        out << std::string(indent + 2, ' ') << "\"name\": \"" << Name << "\"\n";
-        out << std::string(indent, ' ') << "}";
+    llvm::Value * codegen(GenContext& gen) override {
+        llvm::ConstantInt::get(llvm::Type::getInt32Ty(*gen.ctx), m_Val, true);
     }
 };
 
-class AssignmentAST : public AST {
-    std::unique_ptr<AST> m_LHS;
-    std::unique_ptr<AST> m_RHS;
+class AssignmentAST : public ExprAST {
+    std::unique_ptr<ExprAST> m_LHS;
+    std::unique_ptr<ExprAST> m_RHS;
 public:
-    AssignmentAST(std::unique_ptr<AST> LHS, std::unique_ptr<AST> RHS)
+    AssignmentAST(std::unique_ptr<ExprAST> LHS, std::unique_ptr<ExprAST> RHS)
             : m_LHS(std::move(LHS)), m_RHS(std::move(RHS)) {}
 
     void print(std::ostream &out, int indent = 0) const override {
@@ -87,10 +133,46 @@ public:
         m_RHS->print(out, indent + 2);
         out << "\n" << std::string(indent, ' ') << "}";
     }
+    llvm::Value * codegen(GenContext& gen) override;
+};
+
+
+class DeclRefAST : public ExprAST {
+    std::string m_Var;
+public:
+    DeclRefAST(std::string var): m_Var(var) {};
+    void print(std::ostream &out, int indent = 0) const override {
+        out << std::string(indent, ' ') << "{\n";
+        out << std::string(indent + 2, ' ') << "\"type\": \"DeclRefASTNode\",\n";
+        out << std::string(indent + 2, ' ') << "\"name\": \"" << m_Var << "\"\n";
+        out << std::string(indent, ' ') << "}";
+    };
+    llvm::Value * codegen(GenContext& gen) override;
+//    llvm::Value* codegen(GenContext& gen) const override;
+//    llvm::AllocaInst* getStore(GenContext& gen) const;
+};
+
+class VarDeclAST : public StatementAST {
+    std::string m_var;
+    std::unique_ptr<TypeAST> m_type;
+    std::unique_ptr<ExprAST> m_expr;
+    bool m_constant;
+public:
+    VarDeclAST(std::string var, std::unique_ptr<TypeAST> type, std::unique_ptr<ExprAST> expr, bool constant) :
+        m_var(var), m_type(std::move(type)), m_expr(std::move(expr)), m_constant(constant) {};
+    void print(std::ostream &out, int indent = 0) const override {
+        out << std::string(indent, ' ') << "{\n";
+        out << std::string(indent + 2, ' ') << "\"type\": \"VarDeclAST\",\n";
+        out << std::string(indent + 2, ' ') << "\"mvar\": "<< m_var  << "\"VarDeclAST\",\n";
+//        out << std::string(indent + 2, ' ') << "\"operator\": \"" << Op << "\",\n";
+        out << "\n" << std::string(indent, ' ') << "}";
+    };
+    llvm::Value * codegen(GenContext& gen) override;
+//    llvm::Value* codegen(GenContext& gen) const override;
 };
 
 /// BinaryExprAST - Expression class for a binary operator.
-class BinaryExprAST : public AST {
+class BinaryExprAST : public ExprAST {
     char Op;
     std::unique_ptr<AST> LHS, RHS;
 
@@ -109,10 +191,11 @@ public:
         RHS->print(out, indent + 2);
         out << "\n" << std::string(indent, ' ') << "}";
     }
+    llvm::Value * codegen(GenContext& gen) override;
 };
 
 /// CallExprAST - Expression class for function calls.
-class CallExprAST : public AST {
+class CallExprAST : public ExprAST {
     std::string Callee;
     std::vector<std::unique_ptr<AST>> Args;
 
@@ -132,12 +215,13 @@ public:
         out << std::string(indent + 2, ' ') << "]\n";
         out << std::string(indent, ' ') << "}";
     }
+    llvm::Value * codegen(GenContext& gen) override;
 };
 
 /// PrototypeAST - This class represents the "prototype" for a function,
 /// which captures its name, and its argument names (thus implicitly the number
 /// of arguments the function takes).
-class PrototypeAST {
+class PrototypeAST : StatementAST {
     std::string Name;
     std::vector<std::string> Args;
 
@@ -158,10 +242,11 @@ public:
         out << std::string(indent + 2, ' ') << "]\n";
         out << std::string(indent, ' ') << "}";
     }
+    llvm::Value * codegen(GenContext& gen) override;
 };
 
 /// FunctionAST - This class represents a function definition itself.
-class FunctionAST {
+class FunctionAST : public StatementAST {
     std::unique_ptr<PrototypeAST> Proto;
     std::unique_ptr<AST> Body;
 
@@ -179,6 +264,7 @@ public:
         Body->print(out, indent + 2);
         out << "\n" << std::string(indent, ' ') << "}";
     }
+    llvm::Value * codegen(GenContext& gen) override;
 };
 
 #endif // MILA_AST_HPP

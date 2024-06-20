@@ -88,6 +88,7 @@ bool Parser::Parse()
     // Main logic
     auto result = ParseModule();
     std::cout << *result << std::endl;
+    m_AstTree = std::move(result);
     consume(TokenType::tok_dot);
     return true;
 }
@@ -96,7 +97,7 @@ std::unique_ptr<AST> Parser::ParseModule() {
     std::unique_ptr<AST> result = nullptr;
     while(true) {
         switch(CurTok) {
-            case tok_end:
+            case tok_dot:
                 return result;
             case tok_semicolon:
                 getNextToken();
@@ -104,12 +105,10 @@ std::unique_ptr<AST> Parser::ParseModule() {
             case tok_begin:
                 result = ParseBlock();
                 break;
+            case tok_const:
             case tok_var:
                 result = ParseDeclaration();
                 break;
-                // parse var
-            case tok_const:
-                // parse const
             default:
                 std::cout << "Unexpected token" << std::endl;
                 return nullptr;
@@ -144,21 +143,69 @@ std::unique_ptr<AST> Parser::ParseBlock() {
             case TokenType::tok_if:
             case TokenType::tok_for:
                 ParseStatement();
-
         }
     }
+    consume(tok_end);
     return std::make_unique<BlockAST>( std::move(body) );
 };
 
 
 // CONST block -> VAR block, Func declare
 std::unique_ptr<AST> Parser::ParseDeclaration() {
-    return std::unique_ptr<AST>();
+    std::vector<std::unique_ptr<AST> > vars;
+    if(CurTok == tok_const) {
+        consume(tok_const);
+        // Const variable name
+        while(CurTok == tok_identifier) {
+            std::string idName = m_Lexer.identifierStr();
+            consume(tok_identifier);
+            // Todo: needs to parse multiple var with , , , ,
+            consume('=');
+
+            std::unique_ptr<ExprAST> expr = ParseExpression();
+            std::unique_ptr<TypeAST> type = std::make_unique<TypeAST>(TypeAST::Type::INT);
+
+            vars.push_back(std::make_unique<VarDeclAST>(idName,
+                                                        std::move(type),
+                                                        std::move(expr),
+                                                        true));
+            consume(';');
+        }
+    }
+    if(CurTok == tok_var) {
+        consume(tok_var);
+        // Const variable name
+        while(CurTok == tok_identifier) {
+            std::string idName = m_Lexer.identifierStr();
+            consume(tok_identifier);
+            // Todo: needs to parse multiple var with , , , ,
+            consume(':');
+
+            // Can be extended
+            TypeAST::Type typeValue;
+            if (CurTok == tok_integer) {
+                typeValue = TypeAST::Type::INT;
+            }
+            consume(tok_integer);
+
+            std::unique_ptr<TypeAST> type = std::make_unique<TypeAST>(typeValue);
+
+            std::unique_ptr<ExprAST> expr = nullptr;
+
+            vars.push_back(std::make_unique<VarDeclAST>(idName,
+                                                        std::move(type),
+                                                        std::move(expr),
+                                                        false));
+            consume(';');
+        }
+    }
+
+    return std::make_unique<BlockAST>( std::move(vars) );
 };
 
-std::unique_ptr<AST> Parser::ParseAssignmentExpr() {
-    auto LHS = ParseIdentifierExpr();
-    consume(TokenType::tok_equal);
+std::unique_ptr<ExprAST> Parser::ParseAssignmentExpr(std::string & idLHS) {
+    auto LHS = std::make_unique<DeclRefAST>(idLHS);
+    consume(TokenType::tok_assign);
     auto RHS = ParseExpression();
 
     return std::make_unique<AssignmentAST>(std::move(LHS), std::move(RHS));
@@ -181,15 +228,19 @@ std::unique_ptr<AST> Parser::ParseStatement() {
     return ParsePrimary();
 }
 
-std::unique_ptr<AST> Parser::ParseExpression() {
+std::unique_ptr<ExprAST> Parser::ParseExpression() {
     // With program and others and then begin.
     auto LHS = ParsePrimary();
+    std::cout << "Parse primary: " << std::endl;
+    LHS->print(std::cout);
     if (!LHS)
         return nullptr;
+    // If there is no right hand side
+    if(CurTok == ';') return LHS;
     return ParseBinOpRHS(0, std::move(LHS));
 }
 
-std::unique_ptr<AST> Parser::ParsePrimary() {
+std::unique_ptr<ExprAST> Parser::ParsePrimary() {
     switch (CurTok) {
         default:
             return LogError("unknown token when expecting an expression from ParsePrimary");
@@ -203,9 +254,12 @@ std::unique_ptr<AST> Parser::ParsePrimary() {
 }
 
 
-std::unique_ptr<AST> Parser::ParseBinOpRHS(int ExprPrec,
-                                       std::unique_ptr<AST> LHS) {
+std::unique_ptr<ExprAST> Parser::ParseBinOpRHS(int ExprPrec,
+                                       std::unique_ptr<ExprAST> LHS) {
     // If this is a binop, find its precedence.
+    std::cout << "Parsing Binary expression" << std::endl;
+    std::cout << "LHS: " << std::endl;
+    LHS->print(std::cout);
     while (true) {
         int TokPrec = GetTokenPrecedence();
 
@@ -220,6 +274,8 @@ std::unique_ptr<AST> Parser::ParseBinOpRHS(int ExprPrec,
 
         // Parse the primary expression after the binary operator.
         auto RHS = ParsePrimary();
+        std::cout << "RHS: " << std::endl;
+        RHS->print(std::cout);
         if (!RHS)
             return nullptr;
 
@@ -238,17 +294,18 @@ std::unique_ptr<AST> Parser::ParseBinOpRHS(int ExprPrec,
 
 
 /// numberexpr ::= number
-std::unique_ptr<AST> Parser::ParseNumberExpr() {
+std::unique_ptr<ExprAST> Parser::ParseNumberExpr() {
     auto result = std::make_unique<NumberExprAST>(CurTok);
     getNextToken(); // consume the number
     return std::move(result);
 }
 
-std::unique_ptr<AST> Parser::ParseParenExpr() {
-    getNextToken(); // consume '('
+std::unique_ptr<ExprAST> Parser::ParseParenExpr() {
+    consume(tok_lparen);
     auto result = ParseExpression();
     if (!result)
         return nullptr;
+    result->print(std::cout);
     consume(TokenType::tok_rparen);
 
     return result;
@@ -257,13 +314,19 @@ std::unique_ptr<AST> Parser::ParseParenExpr() {
 /// identifierexpr
 ///   ::= identifier
 ///   ::= identifier '(' expression* ')'
-std::unique_ptr<AST> Parser::ParseIdentifierExpr() {
+std::unique_ptr<ExprAST> Parser::ParseIdentifierExpr() {
     std::string idName = m_Lexer.identifierStr();
 
     consume(TokenType::tok_identifier);  // eat identifier.
 
-    if (CurTok != '(')   // Simple variable ref.
-        return std::make_unique<VariableExprAST>(idName);
+    if (CurTok != '(') {
+        // + -
+        // bap - 1;
+        if(CurTok == tok_assign) {
+            return ParseAssignmentExpr(idName);
+        }
+        return std::make_unique<DeclRefAST>(idName);
+    }  // Simple variable ref.
 
     // Call.
     consume(TokenType::tok_lparen);
@@ -302,6 +365,8 @@ bool Parser::consume(int token) {
     PrintToken(CurTok);
     std::cout << std::endl;
     if(token != CurTok) {
+        std::cout << "Expected token: " << ReturnTokenString(token) << " with current: "
+        << ReturnTokenString(CurTok) << std::endl;
         return false;
     }
     getNextToken();
@@ -340,8 +405,19 @@ void Parser::PrintToken(int token) {
     else
         std::cout << ">" << tokenMap[token]  << "<";
 }
+std::string Parser::ReturnTokenString(int token) {
+    if(tokenMap.find(token) == tokenMap.end()) {
+        std::cout << "Not known token: " << token << std::endl;
+        return "";
+    };
+    if(CurTok == TokenType::tok_identifier) {
+        return m_Lexer.identifierStr();
+    }
+    else
+        return tokenMap[token];
+}
 
-std::unique_ptr<AST> Parser::LogError(const char *string) {
+std::unique_ptr<ExprAST> Parser::LogError(const char *string) {
     fprintf(stderr, "Error: %s\n", string);
     return nullptr;
 }
@@ -352,6 +428,11 @@ const llvm::Module& Parser::Generate()
 {
 
     // create writeln function
+    GenContext gen("program");
+    gen.ctx = &MilaContext;
+    gen.builder = &MilaBuilder;
+    gen.module = &MilaModule;
+
     {
         std::vector<llvm::Type*> Ints(1, llvm::Type::getInt32Ty(MilaContext));
         llvm::FunctionType * FT = llvm::FunctionType::get(llvm::Type::getInt32Ty(MilaContext), Ints, false);
@@ -377,6 +458,7 @@ const llvm::Module& Parser::Generate()
         // return 0
         MilaBuilder.CreateRet(llvm::ConstantInt::get(llvm::Type::getInt32Ty(MilaContext), 0));
     }
+    m_AstTree->codegen(gen);
 
     return this->MilaModule;
 }

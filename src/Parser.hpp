@@ -1,18 +1,7 @@
 #ifndef PJPPROJECT_PARSER_HPP
 #define PJPPROJECT_PARSER_HPP
 
-#include <llvm/ADT/APFloat.h>
-#include <llvm/ADT/STLExtras.h>
-#include <llvm/IR/BasicBlock.h>
-#include <llvm/IR/Constants.h>
-#include <llvm/IR/DerivedTypes.h>
-#include <llvm/IR/Function.h>
-#include <llvm/IR/IRBuilder.h>
-#include <llvm/IR/LLVMContext.h>
-#include <llvm/IR/LegacyPassManager.h>
-#include <llvm/IR/Module.h>
-#include <llvm/IR/Type.h>
-#include <llvm/IR/Verifier.h>
+
 #include <fstream>
 
 #include "Lexer.hpp"
@@ -71,7 +60,8 @@ static std::map<int, std::string> tokenMap = {
         {'|', "|"},
         {'&', "&"},
         {'^', "^"},
-        {':', ":"}
+        {':', ":"},
+        {'.', "tok_dot"}
 };
 
 static std::map<char, int> BinopPrecedence = {
@@ -96,12 +86,12 @@ private:
     int getNextToken();
     Lexer m_Lexer;                   // lexer is used to read tokens
     int CurTok;                      // to keep the current token
-    std::map<char, int> BinopPrecedence;
 
     llvm::LLVMContext MilaContext;   // llvm context
     llvm::IRBuilder<> MilaBuilder;   // llvm builder
     llvm::Module MilaModule;         // llvm module
 
+    std::unique_ptr<AST> m_AstTree;
     void printAST();
     bool consume(int token);
 
@@ -124,20 +114,23 @@ private:
     std::unique_ptr<AST> ParseBlock();
 
     std::unique_ptr<AST> ParseStatement();
-    std::unique_ptr<AST> ParseExpression();
-    std::unique_ptr<AST> ParseAssignmentExpr();
-    std::unique_ptr<AST> ParsePrimary();
+    std::unique_ptr<ExprAST> ParseExpression();
+    std::unique_ptr<ExprAST> ParseAssignmentExpr(std::string & idLHS);
 
-    std::unique_ptr<AST> ParseBinOpRHS(int ExprPrec,
-                                               std::unique_ptr<AST> LHS);
-    std::unique_ptr<AST> ParseNumberExpr();
-    std::unique_ptr<AST> ParseParenExpr();
-    std::unique_ptr<AST> ParseIdentifierExpr();
+    std::unique_ptr<ExprAST> ParsePrimary();
+
+    std::unique_ptr<ExprAST> ParseBinOpRHS(int ExprPrec,
+                                               std::unique_ptr<ExprAST> LHS);
+    std::unique_ptr<ExprAST> ParseNumberExpr();
+    std::unique_ptr<ExprAST> ParseParenExpr();
+    std::unique_ptr<ExprAST> ParseIdentifierExpr();
 
     int GetTokenPrecedence();
 
     void PrintToken(int token);
-    std::unique_ptr<AST> LogError(const char *string);
-};
+    std::string ReturnTokenString(int token);
+    std::unique_ptr<ExprAST> LogError(const char *string);
+
+    };
 
 #endif //PJPPROJECT_PARSER_HPP
