@@ -79,7 +79,6 @@ public:
 
     // Program identifier;
     bool Parse();             // parse
-    void initLexer(std::istream& ifs);  // initialize lexer
     const llvm::Module& Generate();  // generate
     void printCurrentToken();
 private:
@@ -87,9 +86,8 @@ private:
     Lexer m_Lexer;                   // lexer is used to read tokens
     int CurTok;                      // to keep the current token
 
-    llvm::LLVMContext MilaContext;   // llvm context
-    llvm::IRBuilder<> MilaBuilder;   // llvm builder
-    llvm::Module MilaModule;         // llvm module
+
+    GenContext gen;
 
     std::unique_ptr<AST> m_AstTree;
     void printAST();

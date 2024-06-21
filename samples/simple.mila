@@ -1,0 +1,8 @@
+program simple;
+
+var
+    n: integer;
+begin
+    n := 2;
+    writeln(n);
+end.

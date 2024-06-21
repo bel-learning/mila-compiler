@@ -1,9 +1,7 @@
 #include "Parser.hpp"
 
 Parser::Parser()
-    : MilaContext()
-    , MilaBuilder(MilaContext)
-    , MilaModule("mila", MilaContext)
+    : gen("mila")
 {
 }
 
@@ -66,17 +64,17 @@ void Parser::printCurrentToken() {
     };
 
     if(tokenMap.find(CurTok) == tokenMap.end()) {
-        std::cout << "Not known token: " << CurTok << std::endl;
+        std::clog << "Not known token: " << CurTok << std::endl;
         return;
     };
     if(CurTok == TokenType::tok_identifier) {
-        std::cout << "\'" << m_Lexer.identifierStr() << "\'" << ", ";
+        std::clog << "\'" << m_Lexer.identifierStr() << "\'" << ", ";
     }
     else if(CurTok == TokenType::tok_number) {
-        std::cout << "\'" << m_Lexer.numVal() << "\'" << ", ";
+        std::clog << "\'" << m_Lexer.numVal() << "\'" << ", ";
     }
     else
-        std::cout << "\'" << tokenMap[CurTok]  << "\'" << ", ";
+        std::clog << "\'" << tokenMap[CurTok]  << "\'" << ", ";
 }
 
 bool Parser::Parse()
@@ -87,34 +85,34 @@ bool Parser::Parse()
     consume(TokenType::tok_semicolon);
     // Main logic
     auto result = ParseModule();
-    std::cout << *result << std::endl;
+    std::clog << *result << std::endl;
     m_AstTree = std::move(result);
     consume(TokenType::tok_dot);
     return true;
 }
 std::unique_ptr<AST> Parser::ParseModule() {
     // Expressions or BLOCK
-    std::unique_ptr<AST> result = nullptr;
+    std::vector<std::unique_ptr<AST>> modules;
     while(true) {
         switch(CurTok) {
             case tok_dot:
-                return result;
+                return std::make_unique<BlockAST>( std::move(modules) );
             case tok_semicolon:
                 getNextToken();
                 break;
             case tok_begin:
-                result = ParseBlock();
+                modules.push_back(ParseBlock());
                 break;
             case tok_const:
             case tok_var:
-                result = ParseDeclaration();
+                modules.push_back(ParseDeclaration());
                 break;
             default:
-                std::cout << "Unexpected token" << std::endl;
+                std::clog << "Unexpected token" << std::endl;
                 return nullptr;
         }
     }
-    return result;
+    return nullptr;
 }
 
 // Begin
@@ -146,6 +144,7 @@ std::unique_ptr<AST> Parser::ParseBlock() {
         }
     }
     consume(tok_end);
+
     return std::make_unique<BlockAST>( std::move(body) );
 };
 
@@ -231,8 +230,8 @@ std::unique_ptr<AST> Parser::ParseStatement() {
 std::unique_ptr<ExprAST> Parser::ParseExpression() {
     // With program and others and then begin.
     auto LHS = ParsePrimary();
-    std::cout << "Parse primary: " << std::endl;
-    LHS->print(std::cout);
+//    std::clog << "Parse primary: " << std::endl;
+//    LHS->print(std::clog);
     if (!LHS)
         return nullptr;
     // If there is no right hand side
@@ -257,9 +256,9 @@ std::unique_ptr<ExprAST> Parser::ParsePrimary() {
 std::unique_ptr<ExprAST> Parser::ParseBinOpRHS(int ExprPrec,
                                        std::unique_ptr<ExprAST> LHS) {
     // If this is a binop, find its precedence.
-    std::cout << "Parsing Binary expression" << std::endl;
-    std::cout << "LHS: " << std::endl;
-    LHS->print(std::cout);
+//    std::clog << "Parsing Binary expression" << std::endl;
+//    std::clog << "LHS: " << std::endl;
+//    LHS->print(std::clog);
     while (true) {
         int TokPrec = GetTokenPrecedence();
 
@@ -274,8 +273,8 @@ std::unique_ptr<ExprAST> Parser::ParseBinOpRHS(int ExprPrec,
 
         // Parse the primary expression after the binary operator.
         auto RHS = ParsePrimary();
-        std::cout << "RHS: " << std::endl;
-        RHS->print(std::cout);
+//        std::clog << "RHS: " << std::endl;
+//        RHS->print(std::clog);
         if (!RHS)
             return nullptr;
 
@@ -295,8 +294,8 @@ std::unique_ptr<ExprAST> Parser::ParseBinOpRHS(int ExprPrec,
 
 /// numberexpr ::= number
 std::unique_ptr<ExprAST> Parser::ParseNumberExpr() {
-    auto result = std::make_unique<NumberExprAST>(CurTok);
-    getNextToken(); // consume the number
+    auto result = std::make_unique<NumberExprAST>(m_Lexer.numVal());
+    consume(tok_number); // consume the number
     return std::move(result);
 }
 
@@ -305,7 +304,7 @@ std::unique_ptr<ExprAST> Parser::ParseParenExpr() {
     auto result = ParseExpression();
     if (!result)
         return nullptr;
-    result->print(std::cout);
+    result->print(std::clog);
     consume(TokenType::tok_rparen);
 
     return result;
@@ -361,27 +360,23 @@ std::unique_ptr<ExprAST> Parser::ParseIdentifierExpr() {
  */
 bool Parser::consume(int token) {
 
-    std::cout << "Eat: ";
+    std::clog << "Eat: ";
     PrintToken(CurTok);
-    std::cout << std::endl;
+    std::clog << std::endl;
     if(token != CurTok) {
-        std::cout << "Expected token: " << ReturnTokenString(token) << " with current: "
+        std::clog << "Expected token: " << ReturnTokenString(token) << " with current: "
         << ReturnTokenString(CurTok) << std::endl;
         return false;
     }
     getNextToken();
 
-    std::cout << "Next: ";
+    std::clog << "Next: ";
     PrintToken(CurTok);
-    std::cout << std::endl;
+    std::clog << std::endl;
 
     return true;
 };
 
-void Parser::initLexer(std::istream& ifs) {
-    m_Lexer.initialize();
-    m_Lexer.initStream(ifs);
-}
 // initialize lexer
 
 int Parser::GetTokenPrecedence() {
@@ -396,18 +391,18 @@ int Parser::GetTokenPrecedence() {
 
 void Parser::PrintToken(int token) {
     if(tokenMap.find(token) == tokenMap.end()) {
-        std::cout << "Not known token: " << token << std::endl;
+        std::clog << "Not known token: " << token << std::endl;
         return;
     };
     if(CurTok == TokenType::tok_identifier) {
-        std::cout << ">" << m_Lexer.identifierStr() << "<";
+        std::clog << ">" << m_Lexer.identifierStr() << "<";
     }
     else
-        std::cout << ">" << tokenMap[token]  << "<";
+        std::clog << ">" << tokenMap[token]  << "<";
 }
 std::string Parser::ReturnTokenString(int token) {
     if(tokenMap.find(token) == tokenMap.end()) {
-        std::cout << "Not known token: " << token << std::endl;
+        std::clog << "Not known token: " << token << std::endl;
         return "";
     };
     if(CurTok == TokenType::tok_identifier) {
@@ -428,37 +423,44 @@ const llvm::Module& Parser::Generate()
 {
 
     // create writeln function
-    GenContext gen("program");
-    gen.ctx = &MilaContext;
-    gen.builder = &MilaBuilder;
-    gen.module = &MilaModule;
 
     {
-        std::vector<llvm::Type*> Ints(1, llvm::Type::getInt32Ty(MilaContext));
-        llvm::FunctionType * FT = llvm::FunctionType::get(llvm::Type::getInt32Ty(MilaContext), Ints, false);
-        llvm::Function * F = llvm::Function::Create(FT, llvm::Function::ExternalLinkage, "writeln", MilaModule);
+        std::vector<llvm::Type*> Ints(1, llvm::Type::getInt32Ty(gen.ctx));
+        llvm::FunctionType * FT = llvm::FunctionType::get(llvm::Type::getVoidTy(gen.ctx), Ints, false);
+        llvm::Function * F = llvm::Function::Create(FT, llvm::Function::ExternalLinkage, "writeln", gen.module);
+        for (auto & Arg : F->args())
+            Arg.setName("x");
+
+
+    }
+    {
+        std::vector<llvm::Type*> Ints(1, llvm::Type::getInt32PtrTy(gen.ctx));
+        llvm::FunctionType * FT = llvm::FunctionType::get(llvm::Type::getInt32Ty(gen.ctx), Ints, false);
+        llvm::Function * F = llvm::Function::Create(FT, llvm::Function::ExternalLinkage, "readln", gen.module);
         for (auto & Arg : F->args())
             Arg.setName("x");
     }
 
     // create main function
     {
-        llvm::FunctionType * FT = llvm::FunctionType::get(llvm::Type::getInt32Ty(MilaContext), false);
-        llvm::Function * MainFunction = llvm::Function::Create(FT, llvm::Function::ExternalLinkage, "main", MilaModule);
+        llvm::FunctionType * FT = llvm::FunctionType::get(llvm::Type::getInt32Ty(gen.ctx), false);
+        llvm::Function * MainFunction = llvm::Function::Create(FT, llvm::Function::ExternalLinkage, "main", gen.module);
 
         // block
-        llvm::BasicBlock * BB = llvm::BasicBlock::Create(MilaContext, "entry", MainFunction);
-        MilaBuilder.SetInsertPoint(BB);
+        llvm::BasicBlock * BB = llvm::BasicBlock::Create(gen.ctx, "entry", MainFunction);
+        gen.builder.SetInsertPoint(BB);
+
+        m_AstTree->codegen(gen);
 
         // call writeln with value from lexel
-        MilaBuilder.CreateCall(MilaModule.getFunction("writeln"), {
-                llvm::ConstantInt::get(MilaContext, llvm::APInt(32, m_Lexer.numVal()))
-        });
+//        gen.builder.CreateCall(gen.module.getFunction("writeln"), {
+//                llvm::ConstantInt::get(gen.ctx, llvm::APInt(32, m_Lexer.numVal()))
+//        });
 
         // return 0
-        MilaBuilder.CreateRet(llvm::ConstantInt::get(llvm::Type::getInt32Ty(MilaContext), 0));
+        gen.builder.CreateRet(llvm::ConstantInt::get(llvm::Type::getInt32Ty(gen.ctx), 0));
     }
-    m_AstTree->codegen(gen);
 
-    return this->MilaModule;
+
+    return this->gen.module;
 }

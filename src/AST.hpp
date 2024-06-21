@@ -25,17 +25,18 @@
 
 class TypeAST;
 
-struct Symbol { llvm::AllocaInst* store; TypeAST* type; };
+struct Symbol {
+    llvm::AllocaInst* store; };
 using SymbolTable = std::map<std::string, Symbol>;
 
 struct GenContext {
-    GenContext(const std::string& moduleName);
+    GenContext(const std::string& moduleName) : ctx(), builder(ctx), module(moduleName, ctx) {};
 
-    llvm::LLVMContext * ctx;
-    llvm::IRBuilder<> * builder;
-    llvm::Module * module;
+    llvm::LLVMContext ctx;
+    llvm::IRBuilder<> builder;
+    llvm::Module module;
 
-    SymbolTable * symbTable;
+    SymbolTable symbTable;
 };
 
 
@@ -54,18 +55,17 @@ public:
 class ExprAST : public AST {
 public:
     virtual ~ExprAST() = default;
-    virtual void print(std::ostream &out, int indent = 0) const = 0;
-    llvm::Value * codegen(GenContext& gen) override = 0;
+//    virtual void print(std::ostream &out, int indent = 0) const = 0;
+    virtual const std::string &getName() const = 0;
 };
 
 class StatementAST : public AST {
 public:
     virtual ~StatementAST() = default;
-    virtual void print(std::ostream &out, int indent = 0) const = 0;
-    llvm::Value * codegen(GenContext& gen) override = 0;
+//    virtual void print(std::ostream &out, int indent = 0) const = 0;
 };
 
-class BlockAST : public StatementAST {
+class BlockAST : public AST {
     std::vector<std::unique_ptr<AST>> m_Body;
 public:
     BlockAST(std::vector<std::unique_ptr<AST>> body) : m_Body(std::move(body)) {}
@@ -80,7 +80,10 @@ public:
         out << std::string(indent, ' ') << "}";
     }
     llvm::Value * codegen(GenContext& gen) override {
-
+        for(auto & expression : m_Body) {
+            expression->codegen(gen);
+        }
+        return nullptr;
     };
 };
 
@@ -95,7 +98,7 @@ public:
     void print(std::ostream &out, int indent = 0) const override {
         out << std::string(indent, ' ') << " Type: " << "INT" << "\n";
     }
-    llvm::Value * codegen(GenContext& gen) override;
+    llvm::Value * codegen(GenContext& gen) override { return nullptr;};
 private:
     Type m_type;
 };
@@ -104,6 +107,7 @@ class NumberExprAST : public ExprAST {
     double m_Val;
 public:
     NumberExprAST(double val) : m_Val(val) {}
+    const std::string &getName() const override { return ""; };
 
     void print(std::ostream &out, int indent = 0) const override {
         out << std::string(indent, ' ') << "{\n";
@@ -112,28 +116,8 @@ public:
         out << std::string(indent, ' ') << "}";
     }
     llvm::Value * codegen(GenContext& gen) override {
-        llvm::ConstantInt::get(llvm::Type::getInt32Ty(*gen.ctx), m_Val, true);
+        return llvm::ConstantInt::get(llvm::Type::getInt32Ty(gen.ctx), m_Val, true);
     }
-};
-
-class AssignmentAST : public ExprAST {
-    std::unique_ptr<ExprAST> m_LHS;
-    std::unique_ptr<ExprAST> m_RHS;
-public:
-    AssignmentAST(std::unique_ptr<ExprAST> LHS, std::unique_ptr<ExprAST> RHS)
-            : m_LHS(std::move(LHS)), m_RHS(std::move(RHS)) {}
-
-    void print(std::ostream &out, int indent = 0) const override {
-        out << std::string(indent, ' ') << "{\n";
-        out << std::string(indent + 2, ' ') << "\"type\": \"AssignmentAST\",\n";
-        out << std::string(indent + 2, ' ') << "\"LHS\": ";
-        m_LHS->print(out, indent + 2);
-        out << ",\n";
-        out << std::string(indent + 2, ' ') << "\"RHS\": ";
-        m_RHS->print(out, indent + 2);
-        out << "\n" << std::string(indent, ' ') << "}";
-    }
-    llvm::Value * codegen(GenContext& gen) override;
 };
 
 
@@ -141,13 +125,28 @@ class DeclRefAST : public ExprAST {
     std::string m_Var;
 public:
     DeclRefAST(std::string var): m_Var(var) {};
+
+    const std::string &getName() const override { return m_Var; };
+
     void print(std::ostream &out, int indent = 0) const override {
         out << std::string(indent, ' ') << "{\n";
         out << std::string(indent + 2, ' ') << "\"type\": \"DeclRefASTNode\",\n";
         out << std::string(indent + 2, ' ') << "\"name\": \"" << m_Var << "\"\n";
         out << std::string(indent, ' ') << "}";
     };
-    llvm::Value * codegen(GenContext& gen) override;
+    llvm::Value * codegen(GenContext& gen) override {
+        // Look up the variable in the symbol table
+        std::clog << "Codegening DeclRefAST: " << m_Var << std::endl;
+        auto iter = gen.symbTable.find(m_Var);
+        if (iter == gen.symbTable.end()) {
+            throw std::runtime_error("Unknown variable name: " + m_Var);
+        }
+
+        // Return the stored LLVM Value for the variable
+        llvm::Value * val = gen.builder.CreateLoad(llvm::Type::getInt32Ty(gen.ctx), iter->second.store);
+
+        return val;
+    };
 //    llvm::Value* codegen(GenContext& gen) const override;
 //    llvm::AllocaInst* getStore(GenContext& gen) const;
 };
@@ -163,13 +162,104 @@ public:
     void print(std::ostream &out, int indent = 0) const override {
         out << std::string(indent, ' ') << "{\n";
         out << std::string(indent + 2, ' ') << "\"type\": \"VarDeclAST\",\n";
-        out << std::string(indent + 2, ' ') << "\"mvar\": "<< m_var  << "\"VarDeclAST\",\n";
+        out << std::string(indent + 2, ' ') << "\"mvar\": "<< m_var;
 //        out << std::string(indent + 2, ' ') << "\"operator\": \"" << Op << "\",\n";
         out << "\n" << std::string(indent, ' ') << "}";
     };
-    llvm::Value * codegen(GenContext& gen) override;
+    llvm::Value* codegen(GenContext &gen) override {
+        // Generate the type for the variable
+//        llvm::Type* varType = m_type->codegen(gen);
+        std::clog << "Codegening VarDeclAST: " << m_var << std::endl;
+        llvm::Type * varType = llvm::Type::getInt32Ty(gen.ctx);
+
+        if (!varType) {
+            throw std::runtime_error("Unknown type for variable: " + m_var);
+        }
+
+        // Create an alloca instruction in the entry block of the function
+        llvm::Function* function = gen.builder.GetInsertBlock()->getParent();
+        llvm::IRBuilder<> tmpBuilder(&function->getEntryBlock(),
+                                     function->getEntryBlock().begin());
+        llvm::AllocaInst* alloca = tmpBuilder.CreateAlloca(varType, 0, m_var.c_str());
+
+        // Initialize the variable if an initializer expression is provided
+        if (m_expr) {
+            llvm::Value* initVal = m_expr->codegen(gen);
+            if (!initVal) {
+                throw std::runtime_error("Failed to generate initializer for variable: " + m_var);
+            }
+
+            // Ensure the types match
+//            if (initVal->getType() != varType) {
+//                throw std::runtime_error("Type mismatch in initializer for variable: " + m_var);
+//            }
+
+            gen.builder.CreateStore(initVal, alloca);
+        }
+
+        // Add the variable to the symbol table
+        gen.symbTable[m_var] = { alloca };
+
+        return alloca;
+    }
+
 //    llvm::Value* codegen(GenContext& gen) const override;
 };
+
+class AssignmentAST : public ExprAST {
+    std::unique_ptr<ExprAST> m_LHS;
+    std::unique_ptr<ExprAST> m_RHS;
+public:
+    AssignmentAST(std::unique_ptr<ExprAST> LHS, std::unique_ptr<ExprAST> RHS)
+            : m_LHS(std::move(LHS)), m_RHS(std::move(RHS)) {}
+    const std::string &getName() const override { return ""; };
+
+    void print(std::ostream &out, int indent = 0) const override {
+        out << std::string(indent, ' ') << "{\n";
+        out << std::string(indent + 2, ' ') << "\"type\": \"AssignmentAST\",\n";
+        out << std::string(indent + 2, ' ') << "\"LHS\": ";
+        m_LHS->print(out, indent + 2);
+        out << ",\n";
+        out << std::string(indent + 2, ' ') << "\"RHS\": ";
+        m_RHS->print(out, indent + 2);
+        out << "\n" << std::string(indent, ' ') << "}";
+    }
+    llvm::Value * codegen(GenContext& gen) override {
+        // Generate code for the LHS, which should be an address
+        llvm::Value* lhs = m_LHS->codegen(gen);
+        if (!lhs) {
+            throw std::runtime_error("Failed to generate LHS for assignment.");
+        }
+
+        // Generate code for the RHS, which should be a value
+        llvm::Value* rhs = m_RHS->codegen(gen);
+        if (!rhs) {
+            throw std::runtime_error("Failed to generate RHS for assignment.");
+        }
+
+//        llvm::Value * LHSP = gen.symbTable[lhs->getName()];
+
+
+        // Ensure the LHS is an address (pointer) and the RHS is a value
+//        if (!lhs->getType()->isPointerTy()) {
+//            throw std::runtime_error("LHS of assignment is not a pointer.");
+//        }
+//        std::unique_ptr<DeclRefAST> LHSE = static_cast<std::unique_ptr<DeclRefAST>>(m_LHS);
+        llvm::Value * variable = gen.symbTable[m_LHS->getName()].store;
+        if(!variable) {
+            std::clog << "Var name(from LLVM): " << m_LHS->getName() << std::endl;
+            throw std::runtime_error("Unknown variable");
+        }
+
+        // Store the RHS value into the LHS address
+        gen.builder.CreateStore(rhs, variable);
+
+        // Return the stored value (RHS) for any further use
+        return rhs;
+    };
+};
+
+
 
 /// BinaryExprAST - Expression class for a binary operator.
 class BinaryExprAST : public ExprAST {
@@ -179,6 +269,7 @@ class BinaryExprAST : public ExprAST {
 public:
     BinaryExprAST(char Op, std::unique_ptr<AST> LHS, std::unique_ptr<AST> RHS)
             : Op(Op), LHS(std::move(LHS)), RHS(std::move(RHS)) {}
+    const std::string &getName() const override { return ""; };
 
     void print(std::ostream &out, int indent = 0) const override {
         out << std::string(indent, ' ') << "{\n";
@@ -191,7 +282,29 @@ public:
         RHS->print(out, indent + 2);
         out << "\n" << std::string(indent, ' ') << "}";
     }
-    llvm::Value * codegen(GenContext& gen) override;
+    llvm::Value * codegen(GenContext& gen) override {
+        llvm::Value *L = LHS->codegen(gen);
+        llvm::Value *R = RHS->codegen(gen);
+        if (!L || !R)
+            return nullptr;
+
+        switch (Op) {
+            case '+':
+                return gen.builder.CreateFAdd(L, R, "addtmp");
+            case '-':
+                return gen.builder.CreateFSub(L, R, "subtmp");
+            case '*':
+                return gen.builder.CreateFMul(L, R, "multmp");
+            case '<':
+                L = gen.builder.CreateFCmpULT(L, R, "cmptmp");
+                // Convert bool 0/1 to double 0.0 or 1.0
+                return gen.builder.CreateUIToFP(L, llvm::Type::getDoubleTy(gen.ctx),
+                                                "booltmp");
+            default:
+                std::clog << "Exception" << std::endl;
+                return nullptr;
+        };
+    }
 };
 
 /// CallExprAST - Expression class for function calls.
@@ -202,6 +315,7 @@ class CallExprAST : public ExprAST {
 public:
     CallExprAST(std::string Callee, std::vector<std::unique_ptr<AST>> Args)
             : Callee(std::move(Callee)), Args(std::move(Args)) {}
+    const std::string &getName() const override { return Callee; }
 
     void print(std::ostream &out, int indent = 0) const override {
         out << std::string(indent, ' ') << "{\n";
@@ -215,7 +329,44 @@ public:
         out << std::string(indent + 2, ' ') << "]\n";
         out << std::string(indent, ' ') << "}";
     }
-    llvm::Value * codegen(GenContext& gen) override;
+    llvm::Value * codegen(GenContext& gen) override {
+        llvm::Function * calleeF = gen.module.getFunction(Callee);
+        if(calleeF == nullptr) {
+            throw std::runtime_error("Unknown function referenced: " + Callee);
+        }
+        // Check if the argument count matches.
+        if (calleeF->arg_size() != Args.size()) {
+            throw std::runtime_error("Incorrect number of arguments passed to: " + Callee);
+        }
+
+        std::vector<llvm::Value *> argsV;
+        for (unsigned i = 0; i < Args.size(); ++i) {
+            std::clog << "Parsing argument: " << std::endl;
+            Args[i]->print(std::clog);
+
+            llvm::Value *argValue = Args[i]->codegen(gen);
+
+            // Special case for "readln" function
+            if (Callee == "readln") {
+                // Create a pointer to the argument if necessary
+                llvm::Value *argPtr = gen.builder.CreateAlloca(argValue->getType());
+                gen.builder.CreateStore(argValue, argPtr);
+                argsV.push_back(argPtr);
+            } else {
+                argsV.push_back(argValue);
+            }
+
+        }
+        llvm::CallInst *call = gen.builder.CreateCall(calleeF, argsV);
+
+        // Check if the callee function returns void
+        if (calleeF->getReturnType()->isVoidTy()) {
+            std::clog << "Callee no return type: " << Callee << std::endl;
+            return nullptr; // No value to return for void functions
+        } else {
+            return call; // Return the call instruction for non-void functions
+        }
+    };
 };
 
 /// PrototypeAST - This class represents the "prototype" for a function,
@@ -242,7 +393,7 @@ public:
         out << std::string(indent + 2, ' ') << "]\n";
         out << std::string(indent, ' ') << "}";
     }
-    llvm::Value * codegen(GenContext& gen) override;
+    llvm::Value * codegen(GenContext& gen) override { return nullptr;};
 };
 
 /// FunctionAST - This class represents a function definition itself.
@@ -264,7 +415,7 @@ public:
         Body->print(out, indent + 2);
         out << "\n" << std::string(indent, ' ') << "}";
     }
-    llvm::Value * codegen(GenContext& gen) override;
+    llvm::Value * codegen(GenContext& gen) override { return nullptr;};
 };
 
 #endif // MILA_AST_HPP
@@ -274,7 +425,7 @@ public:
 //    auto rhs = std::make_unique<NumberExprAST>(5.0);
 //    auto assign = std::make_unique<AssignmentAST>(std::move(lhs), std::move(rhs));
 //
-//    std::cout << *assign << std::endl;
+//    std::clog << *assign << std::endl;
 //
 //    return 0;
 //}

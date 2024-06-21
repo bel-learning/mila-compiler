@@ -88,29 +88,26 @@ enum TokenType {
 
 class Lexer {
 public:
-    Lexer() = default;
+    Lexer() {
+        lastChar = ' ';
+        initialize_keywords();
+        initialize_2char_operators();
+        initialize_3char_operators();
+        initialize_1char_operators();
+    };
     ~Lexer() = default;
     
-    void initStream(std::istream& ifs); // initialize stream
     void tokenize(); // tokenize
     int gettok();
     const std::string& identifierStr() const { return this->m_IdentifierStr; }
 
     int numVal() { return this->m_NumVal; }
 
-    void initialize() {
-        lastChar = ' ';
-        initialize_keywords();
-        initialize_2char_operators();
-        initialize_3char_operators();
-        initialize_1char_operators();
-    }
 private:
     int lastChar;
     std::string m_IdentifierStr;
     int m_NumVal;
 
-    std::istream * m_ifs;
     // Position m_currentPos;
     std::vector<TokenType> m_Tokens;
     
