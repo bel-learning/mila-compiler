@@ -1,5 +1,0 @@
-program helloWorld;
-begin
-  writeln("Hello world!");
-  writeln("Hello world!");
-end

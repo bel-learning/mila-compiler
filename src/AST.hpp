@@ -23,6 +23,8 @@
 #ifndef MILA_AST_HPP
 #define MILA_AST_HPP
 
+#include "Lexer.hpp";
+
 class TypeAST;
 
 struct Symbol {
@@ -104,9 +106,9 @@ private:
 };
 
 class NumberExprAST : public ExprAST {
-    double m_Val;
+    int m_Val;
 public:
-    NumberExprAST(double val) : m_Val(val) {}
+    NumberExprAST(int val) : m_Val(val) {}
     const std::string &getName() const override { return ""; };
 
     void print(std::ostream &out, int indent = 0) const override {
@@ -136,7 +138,7 @@ public:
     };
     llvm::Value * codegen(GenContext& gen) override {
         // Look up the variable in the symbol table
-        std::clog << "Codegening DeclRefAST: " << m_Var << std::endl;
+//        std::clog << "Codegening DeclRefAST: " << m_Var << std::endl;
         auto iter = gen.symbTable.find(m_Var);
         if (iter == gen.symbTable.end()) {
             throw std::runtime_error("Unknown variable name: " + m_Var);
@@ -290,16 +292,28 @@ public:
 
         switch (Op) {
             case '+':
-                return gen.builder.CreateFAdd(L, R, "addtmp");
+                return gen.builder.CreateAdd(L, R, "addtmp");
             case '-':
-                return gen.builder.CreateFSub(L, R, "subtmp");
+                return gen.builder.CreateSub(L, R, "subtmp");
             case '*':
-                return gen.builder.CreateFMul(L, R, "multmp");
+                return gen.builder.CreateMul(L, R, "multmp");
             case '<':
-                L = gen.builder.CreateFCmpULT(L, R, "cmptmp");
-                // Convert bool 0/1 to double 0.0 or 1.0
-                return gen.builder.CreateUIToFP(L, llvm::Type::getDoubleTy(gen.ctx),
-                                                "booltmp");
+                L = gen.builder.CreateICmpSLT(L, R, "cmptmp");
+                // Convert bool 0/1 to int 0 or 1
+                return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "booltmp");
+            case '>':
+                L = gen.builder.CreateICmpSGT(L, R, "cmptmp");
+                // Convert bool 0/1 to int 0 or 1
+                return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "booltmp");
+            case '=':
+                L = gen.builder.CreateICmpEQ(L, R, "cmptmp");
+                // Convert bool 0/1 to int 0 or 1
+                return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "booltmp");
+            case tok_mod:
+                return gen.builder.CreateSRem(L, R, "sremtmp");
+
+//            case tok_and:
+//                L = gen.builder.CreateSRem(L, R, "sremtmp");
             default:
                 std::clog << "Exception" << std::endl;
                 return nullptr;
@@ -372,51 +386,133 @@ public:
 /// PrototypeAST - This class represents the "prototype" for a function,
 /// which captures its name, and its argument names (thus implicitly the number
 /// of arguments the function takes).
-class PrototypeAST : StatementAST {
-    std::string Name;
-    std::vector<std::string> Args;
+class PrototypeAST  {
+    std::string m_Name;
+    std::vector<std::string> m_Args;
 
 public:
     PrototypeAST(const std::string &Name, std::vector<std::string> Args)
-            : Name(Name), Args(std::move(Args)) {}
+            : m_Name(Name), m_Args(std::move(Args)) {}
 
-    const std::string &getName() const { return Name; }
+    const std::string &getName() const { return m_Name; }
 
     void print(std::ostream &out, int indent = 0) const {
         out << std::string(indent, ' ') << "{\n";
         out << std::string(indent + 2, ' ') << "\"type\": \"PrototypeAST\",\n";
-        out << std::string(indent + 2, ' ') << "\"name\": \"" << Name << "\",\n";
+        out << std::string(indent + 2, ' ') << "\"name\": \"" << m_Name << "\",\n";
         out << std::string(indent + 2, ' ') << "\"args\": [\n";
-        for (const auto &arg : Args) {
+        for (const auto &arg : m_Args) {
             out << std::string(indent + 4, ' ') << "\"" << arg << "\",\n";
         }
         out << std::string(indent + 2, ' ') << "]\n";
         out << std::string(indent, ' ') << "}";
     }
-    llvm::Value * codegen(GenContext& gen) override { return nullptr;};
+    llvm::Function * codegen(GenContext& gen)  {
+        std::vector<llvm::Type *> INTS(m_Args.size(), llvm::Type::getInt32Ty(gen.ctx));
+        llvm::FunctionType * FT = llvm::FunctionType::get(llvm::Type::getInt32Ty(gen.ctx), INTS ,false);
+        llvm::Function *F =
+                llvm::Function::Create(FT, llvm::Function::ExternalLinkage, m_Name, gen.module);
+
+        // Set names for all arguments.
+        unsigned Idx = 0;
+        for (auto &arg : F->args())
+            arg.setName(m_Args[Idx++]);
+
+        return F;
+    };
 };
 
 /// FunctionAST - This class represents a function definition itself.
 class FunctionAST : public StatementAST {
-    std::unique_ptr<PrototypeAST> Proto;
-    std::unique_ptr<AST> Body;
+    std::unique_ptr<PrototypeAST> m_Proto;
+    std::unique_ptr<AST> m_Body;
 
 public:
     FunctionAST(std::unique_ptr<PrototypeAST> Proto, std::unique_ptr<AST> Body)
-            : Proto(std::move(Proto)), Body(std::move(Body)) {}
+            : m_Proto(std::move(Proto)), m_Body(std::move(Body)) {}
 
     void print(std::ostream &out, int indent = 0) const {
         out << std::string(indent, ' ') << "{\n";
         out << std::string(indent + 2, ' ') << "\"type\": \"FunctionAST\",\n";
         out << std::string(indent + 2, ' ') << "\"prototype\": ";
-        Proto->print(out, indent + 2);
+        m_Proto->print(out, indent + 2);
         out << ",\n";
         out << std::string(indent + 2, ' ') << "\"body\": ";
-        Body->print(out, indent + 2);
+        m_Body->print(out, indent + 2);
         out << "\n" << std::string(indent, ' ') << "}";
     }
-    llvm::Value * codegen(GenContext& gen) override { return nullptr;};
+    llvm::Value * codegen(GenContext& gen) override {
+        llvm::Function *TheFunction = gen.module.getFunction(m_Proto->getName());
+
+        if (!TheFunction)
+            TheFunction = m_Proto->codegen(gen);
+        if (!TheFunction)
+            return nullptr;
+        if (!TheFunction->empty())
+            throw std::runtime_error("Function cannot be redefined");
+
+        llvm::BasicBlock * BB = llvm::BasicBlock::Create(gen.ctx, "entry", TheFunction);
+
+        gen.builder.SetInsertPoint(BB);
+
+        for (auto &Arg : TheFunction->args()) {
+            // Create an alloca for this variable
+            llvm::AllocaInst *Alloca = gen.builder.CreateAlloca(Arg.getType(), nullptr, Arg.getName());
+            // Store the initial value into the alloca
+            gen.builder.CreateStore(&Arg, Alloca);
+            // Add the variable to the symbol table
+            gen.symbTable[std::string(Arg.getName())] = {Alloca};
+        }
+
+        // Generate code for the function body
+        if (llvm::Value *RetVal = m_Body->codegen(gen)) {
+            // If the function has a non-void return type, generate the return instruction
+            if (TheFunction->getReturnType()->isVoidTy()) {
+                gen.builder.CreateRetVoid();
+            } else {
+                gen.builder.CreateRet(RetVal);
+            }
+
+            // Validate the generated code, checking for consistency
+            llvm::verifyFunction(*TheFunction);
+
+            return TheFunction;
+        }
+
+        // Error reading body, remove the function
+        TheFunction->eraseFromParent();
+        return nullptr;
+
+    };
 };
+
+class IfStmtAST : public StatementAST {
+    std::unique_ptr<AST> m_Cond, m_Then, m_Else;
+
+public:
+    IfStmtAST(std::unique_ptr<AST> cond, std::unique_ptr<AST> then,
+              std::unique_ptr<AST> Else)
+            : m_Cond(std::move(cond)), m_Then(std::move(then)), m_Else(std::move(Else)) {}
+
+    llvm::Value *codegen(GenContext & gen) override {
+        llvm::Value *CondV = m_Cond->codegen(gen);
+        if (!CondV)
+            return nullptr;
+
+        // Convert condition to a bool by comparing non-equal to 0.0.
+//        CondV = gen.builder.CreateICmp
+
+    }
+    void print(std::ostream &out, int indent = 0) const override {
+        out << std::string(indent, ' ') << "{\n";
+        out << std::string(indent + 2, ' ') << "\"type\": \"IF\",\n";
+        m_Cond->print(out, indent + 2);
+        m_Else->print(out, indent + 2);
+        m_Then->print(out, indent + 2);
+        out << std::string(indent, ' ') << "}";
+    }
+};
+
 
 #endif // MILA_AST_HPP
 

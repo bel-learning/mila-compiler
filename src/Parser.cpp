@@ -132,13 +132,14 @@ std::unique_ptr<AST> Parser::ParseBlock() {
                 // A = B  A + B  C * D  W / R
             case TokenType::tok_identifier:
 //                ParseAssignmentExpr();
-                body.push_back(std::move( ParseIdentifierExpr() ));
+                body.push_back(ParseIdentifierExpr());
                 break;
             case TokenType::tok_begin:
-                body.push_back(std::move( ParseBlock() ));
+                body.push_back(ParseBlock());
                 break;
             case TokenType::tok_while:
             case TokenType::tok_if:
+                body.push_back(ParseIfStmt());
             case TokenType::tok_for:
                 ParseStatement();
         }
@@ -148,6 +149,24 @@ std::unique_ptr<AST> Parser::ParseBlock() {
     return std::make_unique<BlockAST>( std::move(body) );
 };
 
+std::unique_ptr<AST> Parser::ParseOneLineBlock() {
+    switch(CurTok) {
+        case TokenType::tok_identifier:
+//                ParseAssignmentExpr();
+            return ParseIdentifierExpr();
+        case TokenType::tok_begin:
+            return ParseBlock();
+        case TokenType::tok_while:
+        case TokenType::tok_if:
+            return ParseIfStmt();
+        case TokenType::tok_for:
+            return ParseStatement();
+        default:
+            throw std::runtime_error("ParseOneLineBlock with Token: " + ReturnTokenString(CurTok));
+    }
+
+    return nullptr;
+};
 
 // CONST block -> VAR block, Func declare
 std::unique_ptr<AST> Parser::ParseDeclaration() {
@@ -353,6 +372,31 @@ std::unique_ptr<ExprAST> Parser::ParseIdentifierExpr() {
     return std::make_unique<CallExprAST>(idName, std::move(Args));
 }
 
+std::unique_ptr<AST> Parser::ParseIfStmt() {
+    consume(tok_if);
+
+    auto Cond = ParseExpression();
+    if(!Cond) return nullptr;
+    // It can be with begin or without begin
+    std::unique_ptr<AST> Then = nullptr;
+    if(CurTok == tok_begin)
+        Then = ParseBlock();
+    else
+        Then = ParseOneLineBlock();
+    if(!Then) return nullptr;
+    std::unique_ptr<AST> Else = nullptr;
+
+    if(CurTok == tok_begin)
+        Then = ParseBlock();
+    else
+        Then = ParseOneLineBlock();
+    if(!Else) return nullptr;
+
+    return std::make_unique<IfStmtAST>(std::move(Cond), std::move(Then), std::move(Else));
+
+}
+
+
 /**
  * @brief Simple consumer.
  *
@@ -380,7 +424,10 @@ bool Parser::consume(int token) {
 // initialize lexer
 
 int Parser::GetTokenPrecedence() {
-    if (!isascii(CurTok))
+
+    if (!isascii(CurTok) && CurTok != tok_mod && CurTok != tok_div && CurTok != tok_not
+        && CurTok != tok_and && CurTok != tok_xor
+    )
         return -1;
 
     // Make sure it's a declared binop.

@@ -70,6 +70,12 @@ static std::map<char, int> BinopPrecedence = {
         {'-', 20},
         {'*', 40},
         {'/', 40},
+        {tok_not, 5},
+        {tok_mod, 40},
+        {tok_div, 40},
+        {tok_and, 80},
+        {tok_xor, 90},
+
 };
 
 class Parser {
@@ -110,6 +116,7 @@ private:
 
     std::unique_ptr<AST> ParseDeclaration(); // can be definition as well
     std::unique_ptr<AST> ParseBlock();
+    std::unique_ptr<AST> ParseOneLineBlock();
 
     std::unique_ptr<AST> ParseStatement();
     std::unique_ptr<ExprAST> ParseExpression();
@@ -122,6 +129,8 @@ private:
     std::unique_ptr<ExprAST> ParseNumberExpr();
     std::unique_ptr<ExprAST> ParseParenExpr();
     std::unique_ptr<ExprAST> ParseIdentifierExpr();
+
+    std::unique_ptr<AST> ParseIfStmt();
 
     int GetTokenPrecedence();
 
