@@ -17,11 +17,11 @@ int Lexer::gettok()
     }
 
     //
-    if (isalpha(lastChar ) ) { // identifier: [a-zA-Z][a-zA-Z0-9]*
+    if (isalpha(lastChar ) || lastChar == '_' ) { // identifier: [a-zA-Z_-][a-zA-Z0-9_-]*
         std::string identifierStr;
         identifierStr += lastChar;
 
-        while ( isalnum(lastChar = std::cin.get() ) )
+        while ( isalnum(lastChar = std::cin.get() ) || lastChar == '_' )
             identifierStr += lastChar;
 
         // If identifier is a keyword

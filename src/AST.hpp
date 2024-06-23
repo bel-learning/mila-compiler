@@ -31,7 +31,10 @@
 class TypeAST;
 
 struct Symbol {
-    llvm::AllocaInst* store; };
+    llvm::AllocaInst* store;
+//    Whether constant variable or not
+    bool constant;
+};
 
 
 //struct SymbolTable {
@@ -258,7 +261,7 @@ public:
         if(searchIt != gen.symbTable.end()) {
             throw std::runtime_error("Already exists var: " + m_var);
         }
-        gen.symbTable[m_var] = {alloca};
+        gen.symbTable[m_var] = {alloca, m_constant};
 
         return alloca;
     }
@@ -304,36 +307,35 @@ public:
             case '<':
                 L = gen.builder.CreateICmpSLT(L, R, "cmptmp");
                 // Convert bool 0/1 to int 0 or 1
-                return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "booltmp");
+                return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "lesstmp");
             case '>':
                 L = gen.builder.CreateICmpSGT(L, R, "cmptmp");
                 // Convert bool 0/1 to int 0 or 1
-                return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "booltmp");
+                return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "greatertmp");
             case tok_lessequal:
                 L = gen.builder.CreateICmpSLE(L, R, "cmptmp");
                 // Convert bool 0/1 to int 0 or 1
-                return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "booltmp");
+                return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "lsetmp");
             case tok_greaterequal:
                 L = gen.builder.CreateICmpSGE(L, R, "cmptmp");
                 // Convert bool 0/1 to int 0 or 1
-                return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "booltmp");
+                return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "gsetmp");
             case tok_equal:
                 L = gen.builder.CreateICmpEQ(L, R, "cmptmp");
                 // Convert bool 0/1 to int 0 or 1
-                return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "booltmp");
+                return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "eqtmp");
             case tok_notequal:
                 L = gen.builder.CreateICmpNE(L, R, "cmptmp");
                 // Convert bool 0/1 to int 0 or 1
-                return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "booltmp");
+                return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "netmp");
             case tok_or:
                 L = gen.builder.CreateOr(L, R, "ortmp");
                 // Convert bool 0/1 to int 0 or 1
-                return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "booltmp");
+                return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "ortmp");
             case tok_and:
                 L = gen.builder.CreateAnd(L, R, "andtmp");
                 // Convert bool 0/1 to int 0 or 1
-                return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "booltmp");
-
+                return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "andtmp");
 
             case tok_mod:
                 return gen.builder.CreateSRem(L, R, "sremtmp");
@@ -354,6 +356,12 @@ public:
         llvm::Value* lhs = m_LHS->codegen(gen);
         if (!lhs) {
             throw std::runtime_error("Failed to generate LHS for assignment.");
+        }
+        auto searchIter = gen.symbTable.find(m_LHS->getName());
+        if(searchIter != gen.symbTable.end()) {
+            if(searchIter->second.constant) {
+                throw std::runtime_error("Trying to change const value");
+            }
         }
 
         // Generate code for the RHS, which should be a value
@@ -405,7 +413,7 @@ public:
             llvm::Value * Val = gen.builder.CreateLoad(llvm::Type::getInt32Ty(gen.ctx), Var, Args[0]->getName());
             llvm::Value * Add = gen.builder.CreateSub(Val, NumberExprAST(1).codegen(gen));
             gen.builder.CreateStore(Add, Var);
-            gen.symbTable[Args[0]->getName()] = {Var};
+            gen.symbTable[Args[0]->getName()] = {Var, false};
             return Add;
         }
         return nullptr;
@@ -451,14 +459,15 @@ public:
             }
 
         }
-        llvm::CallInst *call = gen.builder.CreateCall(calleeF, argsV);
 
         // Check if the callee function returns void
         if (calleeF->getReturnType()->isVoidTy()) {
             std::clog << "Callee no return type: " << Callee << std::endl;
+            gen.builder.CreateCall(calleeF, argsV);
+
             return nullptr; // No value to return for void functions
         } else {
-            return call; // Return the call instruction for non-void functions
+            return  gen.builder.CreateCall(calleeF, argsV, "callfunc");; // Return the call instruction for non-void functions
         }
     };
 };
@@ -529,7 +538,6 @@ public:
     }
     llvm::Value * codegen(GenContext& gen) override {
         llvm::Function *TheFunction = gen.module.getFunction(m_Proto->getName());
-        std::clog << "Codegening: " << m_Proto->getName() << std::endl;
         if (!TheFunction)
             TheFunction = m_Proto->codegen(gen);
         if(!m_Body) return TheFunction;
@@ -555,15 +563,21 @@ public:
         gen.symbTable.clear();
         // Create return value
         llvm::AllocaInst *AllocaReturnVar = gen.builder.CreateAlloca(llvm::Type::getInt32Ty(gen.ctx), nullptr, m_Proto->getName());
-        gen.symbTable[std::string(m_Proto->getName())] = {AllocaReturnVar};
+        gen.symbTable[std::string(m_Proto->getName())] = {AllocaReturnVar, false};
+
         for (auto &Arg : TheFunction->args()) {
             // Create an alloca for this variable
             llvm::AllocaInst *Alloca = gen.builder.CreateAlloca(Arg.getType(), nullptr, Arg.getName());
             // Store the initial value into the alloca
             gen.builder.CreateStore(&Arg, Alloca);
             // Add the variable to the symbol table
-            gen.symbTable[std::string(Arg.getName())] = {Alloca};
+            gen.symbTable[std::string(Arg.getName())] = {Alloca, false};
         }
+
+        for(auto &Var : m_Vars)
+            Var->codegen(gen);
+
+
 
         m_Body->codegen(gen);
 

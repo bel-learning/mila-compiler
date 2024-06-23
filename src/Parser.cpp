@@ -126,7 +126,7 @@ std::unique_ptr<AST> Parser::ParseMainModule() {
 std::unique_ptr<PrototypeAST> Parser::ParsePrototype()
 {
     int tokenType = CurTok;
-
+    getNextToken(); // either consume tok_function or tok_procedure
     consume(tok_function);
     std::string idName = m_Lexer.identifierStr();
     std::unique_ptr<VarDeclAST> returnValue = nullptr;
@@ -141,7 +141,7 @@ std::unique_ptr<PrototypeAST> Parser::ParsePrototype()
         consume(':');
         consume(tok_integer);
         if(CurTok == ')') break;
-        consume(',');
+        consume(';');
 
     }
     consume(')');
@@ -542,7 +542,7 @@ std::unique_ptr<AST> Parser::ParseForStmt() {
     std::clog << "START::::" << std::endl;
     Start->print(std::clog);
     std::unique_ptr<NumberExprAST> Step = nullptr;
-    std::clog << "Next expected token: " << ReturnTokenString(CurTok) << std::endl;
+//    std::clog << "Next expected token: " << ReturnTokenString(CurTok) << std::endl;
     if(CurTok == tok_to) {
         Step = std::make_unique<NumberExprAST>(1);
         consume(tok_to);
@@ -587,12 +587,12 @@ std::unique_ptr<AST> Parser::ParseWhileStmt() {
  */
 bool Parser::consume(int token) {
 
-    std::clog << "Eat: ";
-    PrintToken(CurTok);
-    std::clog << std::endl;
+//    std::clog << "Eat: ";
+//    PrintToken(CurTok);
+//    std::clog << std::endl;
     if(token != CurTok) {
-        std::clog << "Expected token: " << ReturnTokenString(token) << " with current: "
-        << ReturnTokenString(CurTok) << std::endl;
+//        std::clog << "Expected token: " << ReturnTokenString(token) << " with current: "
+//        << ReturnTokenString(CurTok) << std::endl;
         return false;
     }
     getNextToken();
@@ -624,7 +624,7 @@ int Parser::GetTokenPrecedence() {
 
 void Parser::PrintToken(int token) {
     if(tokenMap.find(token) == tokenMap.end()) {
-        std::clog << "Not known token: " << token << std::endl;
+//        std::clog << "Not known token: " << token << std::endl;
         return;
     };
     if(CurTok == TokenType::tok_identifier) {
@@ -635,7 +635,7 @@ void Parser::PrintToken(int token) {
 }
 std::string Parser::ReturnTokenString(int token) {
     if(tokenMap.find(token) == tokenMap.end()) {
-        std::clog << "Not known token: " << token << std::endl;
+//        std::clog << "Not known token: " << token << std::endl;
         return "";
     };
     if(CurTok == TokenType::tok_identifier) {

@@ -1,6 +1,6 @@
 program factorial;
 
-function sum(a: integer, b:integer) : integer;
+function sum(a: integer; b:integer) : integer;
 begin
     sum = a + b;
 end;
