@@ -85,7 +85,6 @@ bool Parser::Parse()
     consume(TokenType::tok_semicolon);
     // Main logic
     auto result = ParseModule();
-    std::clog << *result << std::endl;
     m_AstTree = std::move(result);
     consume(TokenType::tok_dot);
     return true;
@@ -210,6 +209,9 @@ std::unique_ptr<AST> Parser::ParseBlock() {
             case TokenType::tok_for:
                 body.push_back(ParseForStmt());
                 break;
+            case TokenType::tok_break:
+                consume(tok_break);
+                body.push_back(std::make_unique<LoopBreakAST>());
             case TokenType::tok_exit:
                 consume(tok_exit);
                 body.push_back(std::make_unique<FunctionExitAST>());
@@ -237,6 +239,9 @@ std::unique_ptr<AST> Parser::ParseOneLineBlock() {
             return ParseIfStmt();
         case TokenType::tok_for:
             return ParseForStmt();
+        case TokenType::tok_break:
+            consume(tok_break);
+            return std::make_unique<LoopBreakAST>();
         case TokenType::tok_exit:
             consume(tok_exit);
             return std::make_unique<FunctionExitAST>();
@@ -597,9 +602,6 @@ bool Parser::consume(int token) {
     }
     getNextToken();
 
-    std::clog << "Next: ";
-    PrintToken(CurTok);
-    std::clog << std::endl;
 
     return true;
 };

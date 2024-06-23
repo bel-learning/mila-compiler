@@ -56,7 +56,7 @@ enum TokenType {
 
     // keywords for array
     tok_array =         -32,
-
+    tok_break =         -34,
 
     // 1-character operators
     tok_plus =          '+',
@@ -134,6 +134,7 @@ private:
         m_keywords["downto"] = tok_downto;
         m_keywords["do"] = tok_do;
         m_keywords["or"] = tok_or;
+        m_keywords["break"] = tok_break;
 
     }
 

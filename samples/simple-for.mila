@@ -5,6 +5,7 @@ begin
   I := 2;
   for I := 1 to 5 do begin
     writeln(I);
+
   end;
   writeln(I);
 end.

@@ -23,6 +23,7 @@
 
 #include <deque>
 #include "Lexer.hpp"
+#include <stack>
 
 #ifndef MILA_AST_HPP
 #define MILA_AST_HPP
@@ -92,7 +93,7 @@ struct GenContext {
     llvm::IRBuilder<> builder;
     llvm::Module module;
 
-
+    std::stack<llvm::BasicBlock*> loopExitBlocks;
     SymbolTable symbTable;
 };
 
@@ -419,7 +420,6 @@ public:
         return nullptr;
     }
     llvm::Value * codegen(GenContext& gen) override {
-        std::clog << "Callee: " << Callee << std::endl;
 //        for (const llvm::Function &func : gen.module) {
 //            if (!func.isDeclaration()) {
 //                llvm::outs() << "Function: " << func.getName() << "\n";
@@ -462,7 +462,6 @@ public:
 
         // Check if the callee function returns void
         if (calleeF->getReturnType()->isVoidTy()) {
-            std::clog << "Callee no return type: " << Callee << std::endl;
             gen.builder.CreateCall(calleeF, argsV);
 
             return nullptr; // No value to return for void functions
@@ -619,6 +618,24 @@ public:
     };
 
 };
+class LoopBreakAST : public StatementAST {
+public:
+    LoopBreakAST() = default;
+
+    void print(std::ostream &out, int indent = 0) const override {
+        out << std::string(indent + 2, ' ') << "\"type\": \">Function Exit<\",\n";
+    }
+    llvm::Value * codegen(GenContext& gen) override {
+        if (gen.loopExitBlocks.empty()) {
+            std::cerr << "Error: 'break' used outside of loop" << std::endl;
+            return nullptr;
+        }
+        llvm::BasicBlock *ExitBB = gen.loopExitBlocks.top();
+        gen.builder.CreateBr(ExitBB);
+        return nullptr;
+    };
+};
+
 
 
 class IfStmtAST : public StatementAST {
@@ -719,10 +736,10 @@ public:
         llvm::Function *TheFunction = gen.builder.GetInsertBlock()->getParent();
 
         llvm::BasicBlock *ConditionBB =
-                llvm::BasicBlock::Create(gen.ctx);
+                llvm::BasicBlock::Create(gen.ctx, "condb");
         llvm::BasicBlock *LoopBB =
-                llvm::BasicBlock::Create(gen.ctx);
-        llvm::BasicBlock *ExitBB = llvm::BasicBlock::Create(gen.ctx);
+                llvm::BasicBlock::Create(gen.ctx, "loopb");
+        llvm::BasicBlock *ExitBB = llvm::BasicBlock::Create(gen.ctx, "exitb");
 
         gen.builder.CreateBr(ConditionBB);
         gen.builder.SetInsertPoint(ConditionBB);
@@ -747,9 +764,10 @@ public:
         TheFunction->getBasicBlockList().push_back(LoopBB);
 
         gen.builder.SetInsertPoint(LoopBB);
-
+        // To allow break
+        gen.loopExitBlocks.push(ExitBB);
         m_Body->codegen(gen);
-
+        gen.loopExitBlocks.pop();
 
         llvm::Value *StepVal = nullptr;
         if (m_Step) {
@@ -808,7 +826,9 @@ public:
         TheFunction->getBasicBlockList().push_back(LoopBB);
         gen.builder.SetInsertPoint(LoopBB);
 
+        gen.loopExitBlocks.push(ExitBB);
         m_Body->codegen(gen);
+        gen.loopExitBlocks.pop();
 
         gen.builder.CreateBr(CondBB);
 
