@@ -199,7 +199,7 @@ public:
             throw std::runtime_error("Unknown variable name: " + m_Var);
         }
         // Return the stored LLVM Value for the variable
-        llvm::Value * val = gen.builder.CreateLoad(llvm::Type::getInt32Ty(gen.ctx), searchIt->second.store);
+        llvm::Value * val = gen.builder.CreateLoad(llvm::Type::getInt32Ty(gen.ctx), searchIt->second.store, m_Var);
 
         return val;
     };
@@ -309,6 +309,14 @@ public:
                 L = gen.builder.CreateICmpSGT(L, R, "cmptmp");
                 // Convert bool 0/1 to int 0 or 1
                 return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "booltmp");
+            case tok_lessequal:
+                L = gen.builder.CreateICmpSLE(L, R, "cmptmp");
+                // Convert bool 0/1 to int 0 or 1
+                return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "booltmp");
+            case tok_greaterequal:
+                L = gen.builder.CreateICmpSGE(L, R, "cmptmp");
+                // Convert bool 0/1 to int 0 or 1
+                return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "booltmp");
             case '=':
                 L = gen.builder.CreateICmpEQ(L, R, "cmptmp");
                 // Convert bool 0/1 to int 0 or 1
@@ -317,6 +325,7 @@ public:
                 return gen.builder.CreateSRem(L, R, "sremtmp");
             case tok_assign:
                 return codegenAssignment(gen);
+
 
 //            case tok_and:
 //                L = gen.builder.CreateSRem(L, R, "sremtmp");
@@ -379,7 +388,7 @@ public:
         if(Callee == "dec") {
             if(Args.empty()) return nullptr;
             llvm::AllocaInst * Var = gen.symbTable.find(Args[0]->getName())->second.store;
-            llvm::Value * Val = gen.builder.CreateLoad(llvm::Type::getInt32Ty(gen.ctx), Var);
+            llvm::Value * Val = gen.builder.CreateLoad(llvm::Type::getInt32Ty(gen.ctx), Var, Args[0]->getName());
             llvm::Value * Add = gen.builder.CreateSub(Val, NumberExprAST(1).codegen(gen));
             gen.builder.CreateStore(Add, Var);
             gen.symbTable[Args[0]->getName()] = {Var};
@@ -500,7 +509,8 @@ public:
         m_Proto->print(out, indent + 2);
         out << ",\n";
         out << std::string(indent + 2, ' ') << "\"body\": ";
-        m_Body->print(out, indent + 2);
+        if(m_Body)
+            m_Body->print(out, indent + 2);
         out << "\n" << std::string(indent, ' ') << "}";
     }
     llvm::Value * codegen(GenContext& gen) override {
@@ -508,7 +518,7 @@ public:
         std::clog << "Codegening: " << m_Proto->getName() << std::endl;
         if (!TheFunction)
             TheFunction = m_Proto->codegen(gen);
-
+        if(!m_Body) return TheFunction;
         if(m_Proto->getName() == "main") {
             llvm::BasicBlock *MainBB = llvm::BasicBlock::Create(gen.ctx, "entry", TheFunction);
             gen.builder.SetInsertPoint(MainBB);
@@ -547,7 +557,7 @@ public:
         if (TheFunction->getReturnType()->isVoidTy()) {
             gen.builder.CreateRetVoid();
         } else {
-            llvm::Value *RetVal = gen.builder.CreateLoad(llvm::Type::getInt32Ty(gen.ctx), AllocaReturnVar);
+            llvm::Value *RetVal = gen.builder.CreateLoad(llvm::Type::getInt32Ty(gen.ctx), AllocaReturnVar, "return");
             gen.builder.CreateRet(RetVal);
         }
 
@@ -570,21 +580,13 @@ public:
         llvm::Type *ReturnType = TheFunction->getReturnType();
         std::string functionName = TheFunction->getName().str();
         std::clog << "FUNCTION NAME:::" << functionName << std::endl;
-//        if (ReturnType->isVoidTy()) {
-//            gen.builder.CreateRetVoid();
-//        } else {
-//            TheFunction->get
-//            llvm::Value *RetVal = nullptr;
-//            if (m_ReturnValue) {
-//                RetVal = m_ReturnValue->codegen(gen);
-//                if (!RetVal)
-//                    return nullptr;
-//            } else {
-//                // Handle the case where a return value is expected but not provided
-//                RetVal = llvm::Constant::getNullValue(ReturnType);
-//            }
-//            gen.builder.CreateRet(RetVal);
-
+        if (ReturnType->isVoidTy()) {
+            gen.builder.CreateRetVoid();
+        } else {
+            llvm::Value *RetVal = gen.builder.CreateLoad(llvm::Type::getInt32Ty(gen.ctx),
+                                                         gen.symbTable[std::string(functionName)].store, functionName);
+            gen.builder.CreateRet(RetVal);
+        }
         return nullptr;
     };
 
@@ -604,8 +606,9 @@ public:
         out << std::string(indent, ' ') << "{\n";
         out << std::string(indent + 2, ' ') << "\"type\": \"IF\",\n";
         m_Cond->print(out, indent + 2);
-        m_Else->print(out, indent + 2);
         m_Then->print(out, indent + 2);
+
+        if(m_Else) m_Else->print(out, indent + 2);
         out << std::string(indent, ' ') << "}";
     }
 
@@ -706,7 +709,7 @@ public:
         TheFunction->getBasicBlockList().push_back(ConditionBB);
 
         VariableAlloca = gen.symbTable.find(m_Var)->second.store;
-        llvm::Value * VariableValue = gen.builder.CreateLoad(llvm::Type::getInt32Ty(gen.ctx), VariableAlloca);
+        llvm::Value * VariableValue = gen.builder.CreateLoad(llvm::Type::getInt32Ty(gen.ctx), VariableAlloca, "for_assign");
         llvm::Value * condition = gen.builder.CreateICmpSLE(
                 VariableValue, EndCond
         );
@@ -727,7 +730,7 @@ public:
                 return nullptr;
         }
         VariableAlloca = gen.symbTable.find(m_Var)->second.store;
-        VariableValue = gen.builder.CreateLoad(llvm::Type::getInt32Ty(gen.ctx), VariableAlloca);
+        VariableValue = gen.builder.CreateLoad(llvm::Type::getInt32Ty(gen.ctx), VariableAlloca, "for_assign");
         llvm::Value * NextVal = gen.builder.CreateAdd(VariableValue, StepVal, "nextvar");
         gen.builder.CreateStore(NextVal, VariableAlloca);
 

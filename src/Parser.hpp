@@ -68,6 +68,8 @@ static std::map<char, int> BinopPrecedence = {
         {tok_assign, 2},
         {'<', 10},
         {'>', 10},
+        {tok_greaterequal, 10},
+        {tok_lessequal, 10},
         {'+', 20},
         {'-', 20},
         {'*', 40},

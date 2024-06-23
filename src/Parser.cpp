@@ -610,6 +610,7 @@ int Parser::GetTokenPrecedence() {
 
     if (!isascii(CurTok) && CurTok != tok_mod && CurTok != tok_div && CurTok != tok_not
         && CurTok != tok_and && CurTok != tok_xor && CurTok != tok_assign && CurTok != tok_equal
+        && CurTok != tok_lessequal && CurTok != tok_greaterequal
     )
         return -1;
 
