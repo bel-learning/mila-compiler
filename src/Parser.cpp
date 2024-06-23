@@ -100,6 +100,7 @@ std::unique_ptr<AST> Parser::ParseModule() {
             case tok_procedure:
             case tok_function:
                 modules.push_back(ParseFunction());
+                break;
             case tok_semicolon:
                 getNextToken();
                 break;
@@ -135,11 +136,13 @@ std::unique_ptr<PrototypeAST> Parser::ParsePrototype()
     std::vector<std::string> parameters;
     while (CurTok != ')')
     {
-        consume(tok_identifier);
         parameters.push_back(m_Lexer.identifierStr());
+        consume(tok_identifier);
         consume(':');
         consume(tok_integer);
+        if(CurTok == ')') break;
         consume(',');
+
     }
     consume(')');
 
@@ -199,6 +202,8 @@ std::unique_ptr<AST> Parser::ParseBlock() {
                 body.push_back(ParseBlock());
                 break;
             case TokenType::tok_while:
+                body.push_back(ParseWhileStmt());
+                break;
             case TokenType::tok_if:
                 body.push_back(ParseIfStmt());
                 break;
@@ -219,11 +224,11 @@ std::unique_ptr<AST> Parser::ParseOneLineBlock() {
             return ParseExpression();
         case TokenType::tok_identifier:
             res = ParseExpression();
-            consume(tok_semicolon);
             return res;
         case TokenType::tok_begin:
             return ParseBlock();
         case TokenType::tok_while:
+            return ParseWhileStmt();
         case TokenType::tok_if:
             return ParseIfStmt();
         case TokenType::tok_for:
@@ -480,7 +485,6 @@ std::unique_ptr<ExprAST> Parser::ParseIdentifierExpr() {
     }
 
     consume(tok_rparen);
-    consume(tok_semicolon);
 
     return std::make_unique<CallExprAST>(idName, std::move(Args));
 }
@@ -499,8 +503,10 @@ std::unique_ptr<AST> Parser::ParseIfStmt() {
         Then = ParseOneLineBlock();
     if(!Then) return nullptr;
 
-    std::unique_ptr<AST> Else = nullptr;
+    while(CurTok == ';') consume(';');
 
+
+    std::unique_ptr<AST> Else = nullptr;
     if(CurTok == tok_else) {
         consume(tok_else);
         if(CurTok == tok_begin)
@@ -555,10 +561,9 @@ std::unique_ptr<AST> Parser::ParseForStmt() {
 
 std::unique_ptr<AST> Parser::ParseWhileStmt() {
     consume(tok_while);
-    consume('(');
 
     auto Expr =ParseExpression();
-    consume(')');
+
     consume(tok_do);
     auto Body = ParseBlock();
 
@@ -661,12 +666,12 @@ const llvm::Module& Parser::Generate()
 
     // create main function
     {
-        llvm::FunctionType * FT = llvm::FunctionType::get(llvm::Type::getInt32Ty(gen.ctx), false);
-        llvm::Function * MainFunction = llvm::Function::Create(FT, llvm::Function::ExternalLinkage, "main", gen.module);
-
-        // block
-        llvm::BasicBlock * BB = llvm::BasicBlock::Create(gen.ctx, "entry", MainFunction);
-        gen.builder.SetInsertPoint(BB);
+//        llvm::FunctionType * FT = llvm::FunctionType::get(llvm::Type::getInt32Ty(gen.ctx), false);
+//        llvm::Function * MainFunction = llvm::Function::Create(FT, llvm::Function::ExternalLinkage, "main", gen.module);
+//
+//        // block
+//        llvm::BasicBlock * BB = llvm::BasicBlock::Create(gen.ctx, "entry", MainFunction);
+//        gen.builder.SetInsertPoint(BB);
 
         m_AstTree->codegen(gen);
 
@@ -676,7 +681,7 @@ const llvm::Module& Parser::Generate()
 //        });
 
         // return 0
-        gen.builder.CreateRet(llvm::ConstantInt::get(llvm::Type::getInt32Ty(gen.ctx), 0));
+//        gen.builder.CreateRet(llvm::ConstantInt::get(llvm::Type::getInt32Ty(gen.ctx), 0));
     }
 
 

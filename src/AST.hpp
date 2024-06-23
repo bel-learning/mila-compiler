@@ -1,6 +1,7 @@
 //
 // Created by Bilguudei Baljinnyam on 14.06.2024.
 //
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -31,48 +32,55 @@ class TypeAST;
 
 struct Symbol {
     llvm::AllocaInst* store; };
-//using SymbolTable = std::map<std::string, Symbol>;
 
-struct SymbolTable {
-public:
-    SymbolTable() {
-        newScope();
-    };
-    void newScope() {
-        pages.push_front(std::map<std::string, Symbol>());
-    }
-    void deleteScope() {
-        pages.pop_front();
-    }
-    Symbol * search(const std::string & var) {
-        for(auto it = pages.begin(); it != pages.end(); it++) {
-            std::map<std::string, Symbol> & page = *it;
-            auto searchIter = page.find(var);
-            if(searchIter != page.end()) {
-                return &page.at(var);
-            }
-        }
 
-        return nullptr;
-    }
-    bool exists (const std::string & var) {
-        if(pages.front().find(var) == pages.front().end()) return false;
-        return true;
-    }
+//struct SymbolTable {
+//public:
+//    SymbolTable() {
+//        newScope();
+//    };
+//    void newScope() {
+//        pages.emplace_front();
+//    }
+//    void deleteScope() {
+//        pages.pop_front();
+//    }
+//    Symbol * search(const std::string & var) {
+//        for(auto it = pages.begin(); it != pages.end(); it++) {
+//            std::map<std::string, Symbol> & page = *it;
+//            auto searchIter = page.find(var);
+//            if(searchIter != page.end()) {
+//                return &page.at(var);
+//            }
+//        }
+//
+//        return nullptr;
+//    }
+//    bool exists (const std::string & var) {
+//        if(pages.front().find(var) == pages.front().end()) return false;
+//        return true;
+//    }
+//
+//    Symbol & operator [] (const std::string & var) {
+//        return pages.front()[var];
+//    }
+//    void add (const std::string & var, llvm::AllocaInst * alloca) {
+//        pages.front()[var] = {alloca};
+//    }
+//
+//
+//    void erase(const std::string & var) {
+//        pages.front().erase(var);
+//    }
+//    void clear() {
+//        pages.front().clear();
+//    }
+//
+//    std::deque<std::map<std::string, Symbol> > pages;
+//};
 
-    Symbol & operator [] (const std::string & var) {
-        return pages.front()[var];
-    }
-    void erase(const std::string & var) {
-        pages.front().erase(var);
-    }
-    void clear() {
-        pages.front().clear();
-    }
+using SymbolTable = std::map<std::string, Symbol>;
 
-    std::deque<std::map<std::string, Symbol> > pages;
-};
-//using std::map<std::string, Symbol> symbTable;
 
 struct GenContext {
     GenContext(const std::string& moduleName) : ctx(), builder(ctx), module(moduleName, ctx) {};
@@ -185,13 +193,12 @@ public:
     llvm::Value * codegen(GenContext& gen) override {
         // Look up the variable in the symbol table
 //        std::clog << "Codegening DeclRefAST: " << m_Var << std::endl;
-        Symbol * symb = gen.symbTable.search(m_Var);
-        if (symb == nullptr) {
+        auto searchIt = gen.symbTable.find(m_Var);
+        if (searchIt == gen.symbTable.end()) {
             throw std::runtime_error("Unknown variable name: " + m_Var);
         }
-
         // Return the stored LLVM Value for the variable
-        llvm::Value * val = gen.builder.CreateLoad(llvm::Type::getInt32Ty(gen.ctx), symb->store);
+        llvm::Value * val = gen.builder.CreateLoad(llvm::Type::getInt32Ty(gen.ctx), searchIt->second.store);
 
         return val;
     };
@@ -246,7 +253,11 @@ public:
         }
 
         // Add the variable to the symbol table
-        gen.symbTable[m_var] = { alloca };
+        auto searchIt = gen.symbTable.find(m_var);
+        if(searchIt != gen.symbTable.end()) {
+            throw std::runtime_error("Already exists var: " + m_var);
+        }
+        gen.symbTable[m_var] = {alloca};
 
         return alloca;
     }
@@ -363,8 +374,31 @@ public:
         out << std::string(indent + 2, ' ') << "]\n";
         out << std::string(indent, ' ') << "}";
     }
+    llvm::Value * PredefinedFunctions(GenContext& gen) {
+        if(Callee == "dec") {
+            if(Args.empty()) return nullptr;
+            llvm::AllocaInst * Var = gen.symbTable.find(Args[0]->getName())->second.store;
+            llvm::Value * Val = gen.builder.CreateLoad(llvm::Type::getInt32Ty(gen.ctx), Var);
+            llvm::Value * Add = gen.builder.CreateSub(Val, NumberExprAST(1).codegen(gen));
+            gen.builder.CreateStore(Add, Var);
+            gen.symbTable[Args[0]->getName()] = {Var};
+            return Add;
+        }
+        return nullptr;
+    }
     llvm::Value * codegen(GenContext& gen) override {
-        std::cout << "Callee: " << Callee << std::endl;
+        std::clog << "Callee: " << Callee << std::endl;
+//        for (const llvm::Function &func : gen.module) {
+//            if (!func.isDeclaration()) {
+//                llvm::outs() << "Function: " << func.getName() << "\n";
+//            }
+//        }
+//        Check preexisting functions
+        llvm::Value * retValue = PredefinedFunctions(gen);
+        if(retValue != nullptr) {
+            return retValue;
+        }
+
         llvm::Function * calleeF = gen.module.getFunction(Callee);
         if(calleeF == nullptr) {
             throw std::runtime_error("Unknown function referenced: " + Callee);
@@ -432,7 +466,7 @@ public:
     llvm::Function * codegen(GenContext& gen)  {
         std::vector<llvm::Type *> INTS(m_Args.size(), llvm::Type::getInt32Ty(gen.ctx));
         llvm::FunctionType * FT = nullptr;
-        if(m_Return == nullptr)
+        if(m_Return == nullptr && m_Name != "main")
             FT = llvm::FunctionType::get(llvm::Type::getVoidTy(gen.ctx), INTS ,false);
         else
             FT = llvm::FunctionType::get(llvm::Type::getInt32Ty(gen.ctx), INTS ,false);
@@ -475,9 +509,9 @@ public:
             TheFunction = m_Proto->codegen(gen);
 
         if(m_Proto->getName() == "main") {
-            llvm::BasicBlock *BB = llvm::BasicBlock::Create(gen.ctx, "entry", TheFunction);
-            gen.builder.SetInsertPoint(BB);
-            gen.symbTable.pages.clear();
+            llvm::BasicBlock *MainBB = llvm::BasicBlock::Create(gen.ctx, "entry", TheFunction);
+            gen.builder.SetInsertPoint(MainBB);
+            gen.symbTable.clear();
 
             for (auto &variable : m_Vars)
             {
@@ -491,8 +525,8 @@ public:
         }
 
         llvm::BasicBlock * BB = llvm::BasicBlock::Create(gen.ctx, m_Proto->getName(), TheFunction);
-
         gen.builder.SetInsertPoint(BB);
+
         gen.symbTable.clear();
         // Create return value
         llvm::AllocaInst *AllocaReturnVar = gen.builder.CreateAlloca(llvm::Type::getInt32Ty(gen.ctx), nullptr, m_Proto->getName());
@@ -506,26 +540,20 @@ public:
             gen.symbTable[std::string(Arg.getName())] = {Alloca};
         }
 
-        // Generate code for the function body
-        if ( m_Body->codegen(gen)) {
-            // If the function has a non-void return type, generate the return instruction
-            if (TheFunction->getReturnType()->isVoidTy()) {
-                gen.builder.CreateRetVoid();
-            } else {
-                llvm::Value *RetVal = AllocaReturnVar;
-                gen.builder.CreateRet(RetVal);
-            }
+        m_Body->codegen(gen);
 
-            // Validate the generated code, checking for consistency
-            llvm::verifyFunction(*TheFunction);
-
-            return TheFunction;
+        // If the function has a non-void return type, generate the return instruction
+        if (TheFunction->getReturnType()->isVoidTy()) {
+            gen.builder.CreateRetVoid();
+        } else {
+            llvm::Value *RetVal = gen.builder.CreateLoad(llvm::Type::getInt32Ty(gen.ctx), AllocaReturnVar);
+            gen.builder.CreateRet(RetVal);
         }
 
-        // Error reading body, remove the function
-        TheFunction->eraseFromParent();
+        // Validate the generated code, checking for consistency
+        llvm::verifyFunction(*TheFunction);
 
-        return nullptr;
+        return TheFunction;
 
     };
 };
@@ -572,20 +600,16 @@ public:
         }
 
         gen.builder.SetInsertPoint(ThenBB);
-        llvm::Value *ThenV = m_Then->codegen(gen);
-        if (!ThenV) return nullptr;
-        gen.builder.CreateBr(MergeBB);
 
-        ThenBB = gen.builder.GetInsertBlock();
+        m_Then->codegen(gen);
+
+        gen.builder.CreateBr(MergeBB);
 
         if(m_Else) {
             TheFunction->getBasicBlockList().push_back(ElseBB);
             gen.builder.SetInsertPoint(ElseBB);
-            llvm::Value *ElseV = m_Else->codegen(gen);
-            if(!ElseV) return nullptr;
-
-            // Add the else block to the function
-            ElseBB = gen.builder.GetInsertBlock();
+            m_Else->codegen(gen);
+            gen.builder.CreateBr(MergeBB);
         }
 
         // Generate code for the merge block
@@ -625,7 +649,7 @@ public:
 
         // Make the new basic block for the loop header, inserting after current
 // block.
-        llvm::AllocaInst * VariableAlloca = gen.symbTable.search(m_Var)->store;
+        llvm::AllocaInst * VariableAlloca = gen.symbTable.find(m_Var)->second.store;
         gen.builder.CreateStore(StartVal, VariableAlloca);
 
         llvm::Function *TheFunction = gen.builder.GetInsertBlock()->getParent();
@@ -648,7 +672,7 @@ public:
         // Convert condition to a bool by comparing non-equal to 0.0.
         TheFunction->getBasicBlockList().push_back(ConditionBB);
 
-        VariableAlloca = gen.symbTable.search(m_Var)->store;
+        VariableAlloca = gen.symbTable.find(m_Var)->second.store;
         llvm::Value * VariableValue = gen.builder.CreateLoad(llvm::Type::getInt32Ty(gen.ctx), VariableAlloca);
         llvm::Value * condition = gen.builder.CreateICmpSLE(
                 VariableValue, EndCond
@@ -669,7 +693,7 @@ public:
             if (!StepVal)
                 return nullptr;
         }
-        VariableAlloca = gen.symbTable.search(m_Var)->store;
+        VariableAlloca = gen.symbTable.find(m_Var)->second.store;
         VariableValue = gen.builder.CreateLoad(llvm::Type::getInt32Ty(gen.ctx), VariableAlloca);
         llvm::Value * NextVal = gen.builder.CreateAdd(VariableValue, StepVal, "nextvar");
         gen.builder.CreateStore(NextVal, VariableAlloca);
@@ -704,7 +728,7 @@ public:
         llvm::Function *TheFunction = gen.builder.GetInsertBlock()->getParent();
 
         llvm::BasicBlock *CondBB = llvm::BasicBlock::Create(gen.ctx, "whilecond", TheFunction);
-        llvm::BasicBlock *LoopBB = llvm::BasicBlock::Create(gen.ctx, "whileloop");
+        llvm::BasicBlock *LoopBB = llvm::BasicBlock::Create(gen.ctx, "whileloop" );
         llvm::BasicBlock *ExitBB = llvm::BasicBlock::Create(gen.ctx, "whileexit");
 
         gen.builder.CreateBr(CondBB);
@@ -720,8 +744,7 @@ public:
         TheFunction->getBasicBlockList().push_back(LoopBB);
         gen.builder.SetInsertPoint(LoopBB);
 
-        if (!m_Body->codegen(gen))
-            return nullptr;
+        m_Body->codegen(gen);
 
         gen.builder.CreateBr(CondBB);
 
