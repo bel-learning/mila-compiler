@@ -554,7 +554,15 @@ std::unique_ptr<AST> Parser::ParseForStmt() {
 }
 
 std::unique_ptr<AST> Parser::ParseWhileStmt() {
+    consume(tok_while);
+    consume('(');
 
+    auto Expr =ParseExpression();
+    consume(')');
+    consume(tok_do);
+    auto Body = ParseBlock();
+
+    return std::make_unique<WhileStmtAST>(std::move(Expr), std::move(Body));
 };
 
 

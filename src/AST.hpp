@@ -364,6 +364,7 @@ public:
         out << std::string(indent, ' ') << "}";
     }
     llvm::Value * codegen(GenContext& gen) override {
+        std::cout << "Callee: " << Callee << std::endl;
         llvm::Function * calleeF = gen.module.getFunction(Callee);
         if(calleeF == nullptr) {
             throw std::runtime_error("Unknown function referenced: " + Callee);
