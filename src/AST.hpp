@@ -20,16 +20,51 @@
 #include <llvm/IR/Type.h>
 #include <llvm/IR/Verifier.h>
 
+#include <deque>
+#include "Lexer.hpp"
+
 #ifndef MILA_AST_HPP
 #define MILA_AST_HPP
 
-#include "Lexer.hpp";
 
 class TypeAST;
 
 struct Symbol {
     llvm::AllocaInst* store; };
-using SymbolTable = std::map<std::string, Symbol>;
+//using SymbolTable = std::map<std::string, Symbol>;
+
+struct SymbolTable {
+public:
+    SymbolTable() {
+        newScope();
+    };
+    void newScope() {
+        pages.push_front(std::map<std::string, Symbol>());
+    }
+    void deleteScope() {
+        pages.pop_front();
+    }
+    Symbol * search(const std::string & var) {
+       for(auto it = pages.begin(); it != pages.end(); it++) {
+           std::map<std::string, Symbol> & page = *it;
+           auto searchIter = page.find(var);
+           if(searchIter != page.end()) {
+               return &page.at(var);
+           }
+       }
+
+       return nullptr;
+    }
+    Symbol & operator [] (const std::string & var) {
+        return pages.front()[var];
+    }
+    void erase(const std::string & var) {
+        pages.front().erase(var);
+    }
+
+
+    std::deque<std::map<std::string, Symbol> > pages;
+};
 
 struct GenContext {
     GenContext(const std::string& moduleName) : ctx(), builder(ctx), module(moduleName, ctx) {};
@@ -76,7 +111,10 @@ public:
     void print(std::ostream &out, int indent = 0) const override {
         out << std::string(indent, ' ') << "{\n";
         for (const auto &stmt : m_Body) {
-            stmt->print(out, indent + 2);
+            if(!stmt)
+                std::clog << "Nullptr in: " << " block" << std::endl;
+            else
+                stmt->print(out, indent + 2);
             out << ",\n";
         }
         out << std::string(indent, ' ') << "}";
@@ -139,13 +177,13 @@ public:
     llvm::Value * codegen(GenContext& gen) override {
         // Look up the variable in the symbol table
 //        std::clog << "Codegening DeclRefAST: " << m_Var << std::endl;
-        auto iter = gen.symbTable.find(m_Var);
-        if (iter == gen.symbTable.end()) {
+        Symbol * symb = gen.symbTable.search(m_Var);
+        if (symb == nullptr) {
             throw std::runtime_error("Unknown variable name: " + m_Var);
         }
 
         // Return the stored LLVM Value for the variable
-        llvm::Value * val = gen.builder.CreateLoad(llvm::Type::getInt32Ty(gen.ctx), iter->second.store);
+        llvm::Value * val = gen.builder.CreateLoad(llvm::Type::getInt32Ty(gen.ctx), symb->store);
 
         return val;
     };
@@ -208,17 +246,21 @@ public:
 //    llvm::Value* codegen(GenContext& gen) const override;
 };
 
-class AssignmentAST : public ExprAST {
-    std::unique_ptr<ExprAST> m_LHS;
-    std::unique_ptr<ExprAST> m_RHS;
+
+/// BinaryExprAST - Expression class for a binary operator.
+class BinaryExprAST : public ExprAST {
+    char Op;
+    std::unique_ptr<ExprAST> m_LHS, m_RHS;
+
 public:
-    AssignmentAST(std::unique_ptr<ExprAST> LHS, std::unique_ptr<ExprAST> RHS)
-            : m_LHS(std::move(LHS)), m_RHS(std::move(RHS)) {}
+    BinaryExprAST(char Op, std::unique_ptr<ExprAST> LHS, std::unique_ptr<ExprAST> RHS)
+            : Op(Op), m_LHS(std::move(LHS)), m_RHS(std::move(RHS)) {}
     const std::string &getName() const override { return ""; };
 
     void print(std::ostream &out, int indent = 0) const override {
         out << std::string(indent, ' ') << "{\n";
-        out << std::string(indent + 2, ' ') << "\"type\": \"AssignmentAST\",\n";
+        out << std::string(indent + 2, ' ') << "\"type\": \"BinaryExprAST\",\n";
+        out << std::string(indent + 2, ' ') << "\"operator\": \"" << Op << "\",\n";
         out << std::string(indent + 2, ' ') << "\"LHS\": ";
         m_LHS->print(out, indent + 2);
         out << ",\n";
@@ -227,66 +269,8 @@ public:
         out << "\n" << std::string(indent, ' ') << "}";
     }
     llvm::Value * codegen(GenContext& gen) override {
-        // Generate code for the LHS, which should be an address
-        llvm::Value* lhs = m_LHS->codegen(gen);
-        if (!lhs) {
-            throw std::runtime_error("Failed to generate LHS for assignment.");
-        }
-
-        // Generate code for the RHS, which should be a value
-        llvm::Value* rhs = m_RHS->codegen(gen);
-        if (!rhs) {
-            throw std::runtime_error("Failed to generate RHS for assignment.");
-        }
-
-//        llvm::Value * LHSP = gen.symbTable[lhs->getName()];
-
-
-        // Ensure the LHS is an address (pointer) and the RHS is a value
-//        if (!lhs->getType()->isPointerTy()) {
-//            throw std::runtime_error("LHS of assignment is not a pointer.");
-//        }
-//        std::unique_ptr<DeclRefAST> LHSE = static_cast<std::unique_ptr<DeclRefAST>>(m_LHS);
-        llvm::Value * variable = gen.symbTable[m_LHS->getName()].store;
-        if(!variable) {
-            std::clog << "Var name(from LLVM): " << m_LHS->getName() << std::endl;
-            throw std::runtime_error("Unknown variable");
-        }
-
-        // Store the RHS value into the LHS address
-        gen.builder.CreateStore(rhs, variable);
-
-        // Return the stored value (RHS) for any further use
-        return rhs;
-    };
-};
-
-
-
-/// BinaryExprAST - Expression class for a binary operator.
-class BinaryExprAST : public ExprAST {
-    char Op;
-    std::unique_ptr<AST> LHS, RHS;
-
-public:
-    BinaryExprAST(char Op, std::unique_ptr<AST> LHS, std::unique_ptr<AST> RHS)
-            : Op(Op), LHS(std::move(LHS)), RHS(std::move(RHS)) {}
-    const std::string &getName() const override { return ""; };
-
-    void print(std::ostream &out, int indent = 0) const override {
-        out << std::string(indent, ' ') << "{\n";
-        out << std::string(indent + 2, ' ') << "\"type\": \"BinaryExprAST\",\n";
-        out << std::string(indent + 2, ' ') << "\"operator\": \"" << Op << "\",\n";
-        out << std::string(indent + 2, ' ') << "\"LHS\": ";
-        LHS->print(out, indent + 2);
-        out << ",\n";
-        out << std::string(indent + 2, ' ') << "\"RHS\": ";
-        RHS->print(out, indent + 2);
-        out << "\n" << std::string(indent, ' ') << "}";
-    }
-    llvm::Value * codegen(GenContext& gen) override {
-        llvm::Value *L = LHS->codegen(gen);
-        llvm::Value *R = RHS->codegen(gen);
+        llvm::Value *L = m_LHS->codegen(gen);
+        llvm::Value *R = m_RHS->codegen(gen);
         if (!L || !R)
             return nullptr;
 
@@ -311,6 +295,8 @@ public:
                 return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "booltmp");
             case tok_mod:
                 return gen.builder.CreateSRem(L, R, "sremtmp");
+            case tok_assign:
+                return codegenAssignment(gen);
 
 //            case tok_and:
 //                L = gen.builder.CreateSRem(L, R, "sremtmp");
@@ -319,15 +305,41 @@ public:
                 return nullptr;
         };
     }
+
+    llvm::Value * codegenAssignment(GenContext & gen) {
+        // Generate code for the LHS, which should be an address
+        llvm::Value* lhs = m_LHS->codegen(gen);
+        if (!lhs) {
+            throw std::runtime_error("Failed to generate LHS for assignment.");
+        }
+
+        // Generate code for the RHS, which should be a value
+        llvm::Value* rhs = m_RHS->codegen(gen);
+        if (!rhs) {
+            throw std::runtime_error("Failed to generate RHS for assignment.");
+        }
+
+        llvm::Value * variable = gen.symbTable[m_LHS->getName()].store;
+        if(!variable) {
+            std::clog << "Var name(from LLVM): " << m_LHS->getName() << std::endl;
+            throw std::runtime_error("Unknown variable");
+        }
+
+        // Store the RHS value into the LHS address
+        gen.builder.CreateStore(rhs, variable);
+
+        // Return the stored value (RHS) for any further use
+        return rhs;
+    }
 };
 
 /// CallExprAST - Expression class for function calls.
 class CallExprAST : public ExprAST {
     std::string Callee;
-    std::vector<std::unique_ptr<AST>> Args;
+    std::vector<std::unique_ptr<ExprAST>> Args;
 
 public:
-    CallExprAST(std::string Callee, std::vector<std::unique_ptr<AST>> Args)
+    CallExprAST(std::string Callee, std::vector<std::unique_ptr<ExprAST>> Args)
             : Callee(std::move(Callee)), Args(std::move(Args)) {}
     const std::string &getName() const override { return Callee; }
 
@@ -363,9 +375,12 @@ public:
             // Special case for "readln" function
             if (Callee == "readln") {
                 // Create a pointer to the argument if necessary
-                llvm::Value *argPtr = gen.builder.CreateAlloca(argValue->getType());
-                gen.builder.CreateStore(argValue, argPtr);
-                argsV.push_back(argPtr);
+                llvm::AllocaInst * var = gen.symbTable[Args[i]->getName()].store;
+                if(!var) {
+                    throw std::runtime_error("Var doesn't exist");
+                }
+                //                Args[i].
+                argsV.push_back(var);
             } else {
                 argsV.push_back(argValue);
             }
@@ -494,15 +509,7 @@ public:
               std::unique_ptr<AST> Else)
             : m_Cond(std::move(cond)), m_Then(std::move(then)), m_Else(std::move(Else)) {}
 
-    llvm::Value *codegen(GenContext & gen) override {
-        llvm::Value *CondV = m_Cond->codegen(gen);
-        if (!CondV)
-            return nullptr;
 
-        // Convert condition to a bool by comparing non-equal to 0.0.
-//        CondV = gen.builder.CreateICmp
-
-    }
     void print(std::ostream &out, int indent = 0) const override {
         out << std::string(indent, ' ') << "{\n";
         out << std::string(indent + 2, ' ') << "\"type\": \"IF\",\n";
@@ -511,7 +518,144 @@ public:
         m_Then->print(out, indent + 2);
         out << std::string(indent, ' ') << "}";
     }
+
+    llvm::Value *codegen(GenContext & gen) override {
+        llvm::Value *CondV = m_Cond->codegen(gen);
+        if (!CondV)
+            return nullptr;
+
+        // Convert condition to a bool by comparing non-equal to 0
+        CondV = gen.builder.CreateICmpNE(CondV, llvm::ConstantInt::get(CondV->getType(), 0, true), "ifcond");
+
+
+        llvm::Function * TheFunction = gen.builder.GetInsertBlock()->getParent();
+
+        // Create blocks for the then, else, and the continuation (merge) block
+        llvm::BasicBlock *ThenBB = llvm::BasicBlock::Create(gen.ctx, "then", TheFunction);
+        llvm::BasicBlock *MergeBB = llvm::BasicBlock::Create(gen.ctx, "ifcont");
+
+        llvm::BasicBlock *ElseBB = nullptr;
+        if (m_Else) {
+            ElseBB = llvm::BasicBlock::Create(gen.ctx, "else");
+            gen.builder.CreateCondBr(CondV, ThenBB, ElseBB);
+        } else {
+            gen.builder.CreateCondBr(CondV, ThenBB, MergeBB);
+        }
+
+        gen.builder.SetInsertPoint(ThenBB);
+        llvm::Value *ThenV = m_Then->codegen(gen);
+        if (!ThenV) return nullptr;
+        gen.builder.CreateBr(MergeBB);
+
+        ThenBB = gen.builder.GetInsertBlock();
+
+        if(m_Else) {
+            TheFunction->getBasicBlockList().push_back(ElseBB);
+            gen.builder.SetInsertPoint(ElseBB);
+            llvm::Value *ElseV = m_Else->codegen(gen);
+            if(!ElseV) return nullptr;
+
+            // Add the else block to the function
+            ElseBB = gen.builder.GetInsertBlock();
+        }
+
+        // Generate code for the merge block
+        TheFunction->getBasicBlockList().push_back(MergeBB);
+        gen.builder.SetInsertPoint(MergeBB);
+        return MergeBB;
+    }
 };
+
+class ForStmtAST : public StatementAST {
+    std::string m_Var;
+    std::unique_ptr<ExprAST> m_Start, m_End;
+    std::unique_ptr<NumberExprAST> m_Step;
+    std::unique_ptr<AST> m_Body;
+
+public:
+    ForStmtAST(const std::string &Var, std::unique_ptr<ExprAST> Start,
+               std::unique_ptr<ExprAST> End, std::unique_ptr<NumberExprAST> Step,
+               std::unique_ptr<AST> Body)
+            : m_Var(Var), m_Start(std::move(Start)), m_End(std::move(End)),
+              m_Step(std::move(Step)), m_Body(std::move(Body)) {}
+
+    void print(std::ostream &out, int indent = 0) const override {
+        out << std::string(indent, ' ') << "{\n";
+        out << std::string(indent + 2, ' ') << "\"type\": \"FOR\",\n";
+        m_Start->print(out, indent + 2);
+        m_End->print(out, indent + 2);
+        m_Step->print(out, indent + 2);
+        m_Body->print(out, indent + 2);
+        out << std::string(indent + 2, ' ') << "}";
+    }
+
+    llvm::Value *codegen(GenContext & gen) override {
+        llvm::Value *StartVal = m_Start->codegen(gen);
+        if (!StartVal)
+            return nullptr;
+
+        // Make the new basic block for the loop header, inserting after current
+// block.
+        llvm::Function *TheFunction = gen.builder.GetInsertBlock()->getParent();
+        llvm::BasicBlock *PreheaderBB = gen.builder.GetInsertBlock();
+        llvm::BasicBlock *LoopBB =
+                llvm::BasicBlock::Create(gen.ctx, "loop", TheFunction);
+
+        gen.builder.CreateBr(LoopBB);
+
+        gen.builder.SetInsertPoint(LoopBB);
+
+        llvm::PHINode * Variable = gen.builder.CreatePHI(llvm::Type::getInt32Ty(gen.ctx), 2, m_Var);
+        Variable->addIncoming(StartVal, PreheaderBB);
+
+        llvm::Value * oldVal = gen.symbTable.search(m_Var)->store;
+        llvm::AllocaInst *Alloca = gen.builder.CreateAlloca(StartVal->getType(), nullptr, m_Var);
+        // Store the initial value into the alloca.
+        gen.builder.CreateStore(StartVal, Alloca);
+
+        if (!m_Body->codegen(gen))
+            return nullptr;
+
+        llvm::Value *StepVal = nullptr;
+        if (m_Step) {
+            StepVal = m_Step->codegen(gen);
+            if (!StepVal)
+                return nullptr;
+        }
+        llvm::Value * NextVal = gen.builder.CreateAdd(Variable, StepVal, "nextvar");
+
+        // Compute the end condition.
+        llvm::Value *EndCond = m_End->codegen(gen);
+        if (!EndCond)
+            return nullptr;
+
+        // Convert condition to a bool by comparing non-equal to 0.0.
+
+        EndCond = gen.builder.CreateICmpEQ(
+                EndCond, NextVal, "loopcmp"
+                );
+
+        // Create the "after loop" block and insert it.
+        llvm::BasicBlock *LoopEndBB = gen.builder.GetInsertBlock();
+        llvm::BasicBlock *AfterBB =
+                llvm::BasicBlock::Create(gen.ctx, "afterloop", TheFunction);
+
+        gen.builder.CreateCondBr(EndCond, LoopBB, AfterBB);
+        gen.builder.SetInsertPoint(AfterBB);
+
+        // Add a new entry to the PHI node for the backedge.
+        Variable->addIncoming(NextVal, LoopEndBB);
+
+        // Restore the unshadowed variable.
+        if (oldVal)
+            gen.symbTable[m_Var] = {Alloca};
+        else
+            gen.symbTable.erase(m_Var);
+
+        return nullptr;
+    };
+};
+
 
 
 #endif // MILA_AST_HPP

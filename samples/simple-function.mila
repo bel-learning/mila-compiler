@@ -1,0 +1,10 @@
+program factorial;
+
+function sum(a: integer, b:integer) : integer;
+begin
+    a = a + b;
+end;
+
+begin
+    writeln(facti(5, 4));
+end.

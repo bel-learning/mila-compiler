@@ -3,10 +3,10 @@ program simple;
 var
     n: integer;
 begin
-    n := 3;
+    readln(n);
     if n > 2 then
         n := 2;
-    else 
+    else
         n := 4;
     writeln(n);
 end.

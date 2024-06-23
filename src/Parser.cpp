@@ -126,13 +126,14 @@ std::unique_ptr<AST> Parser::ParseBlock() {
 //        auto res = Parse
         switch(CurTok) {
             case TokenType::tok_semicolon:
-                getNextToken();
+                consume(tok_semicolon);
                 continue;
                 // L5 -> L4 = L5 <- right->left
                 // A = B  A + B  C * D  W / R
+            case TokenType::tok_number:
             case TokenType::tok_identifier:
-//                ParseAssignmentExpr();
-                body.push_back(ParseIdentifierExpr());
+                body.push_back(ParseExpression());
+                consume(tok_semicolon);
                 break;
             case TokenType::tok_begin:
                 body.push_back(ParseBlock());
@@ -140,8 +141,10 @@ std::unique_ptr<AST> Parser::ParseBlock() {
             case TokenType::tok_while:
             case TokenType::tok_if:
                 body.push_back(ParseIfStmt());
+                break;
             case TokenType::tok_for:
-                ParseStatement();
+                body.push_back(ParseForStmt());
+                break;
         }
     }
     consume(tok_end);
@@ -150,21 +153,24 @@ std::unique_ptr<AST> Parser::ParseBlock() {
 };
 
 std::unique_ptr<AST> Parser::ParseOneLineBlock() {
+    std::unique_ptr<ExprAST> res = nullptr;
     switch(CurTok) {
+        case TokenType::tok_number:
+            return ParseExpression();
         case TokenType::tok_identifier:
-//                ParseAssignmentExpr();
-            return ParseIdentifierExpr();
+            res = ParseExpression();
+            consume(tok_semicolon);
+            return res;
         case TokenType::tok_begin:
             return ParseBlock();
         case TokenType::tok_while:
         case TokenType::tok_if:
             return ParseIfStmt();
         case TokenType::tok_for:
-            return ParseStatement();
+            return ParseForStmt();
         default:
             throw std::runtime_error("ParseOneLineBlock with Token: " + ReturnTokenString(CurTok));
     }
-
     return nullptr;
 };
 
@@ -221,14 +227,6 @@ std::unique_ptr<AST> Parser::ParseDeclaration() {
     return std::make_unique<BlockAST>( std::move(vars) );
 };
 
-std::unique_ptr<ExprAST> Parser::ParseAssignmentExpr(std::string & idLHS) {
-    auto LHS = std::make_unique<DeclRefAST>(idLHS);
-    consume(TokenType::tok_assign);
-    auto RHS = ParseExpression();
-
-    return std::make_unique<AssignmentAST>(std::move(LHS), std::move(RHS));
-}
-
 
 /**
  * @brief Simple token buffer.
@@ -255,13 +253,15 @@ std::unique_ptr<ExprAST> Parser::ParseExpression() {
         return nullptr;
     // If there is no right hand side
     if(CurTok == ';') return LHS;
-    return ParseBinOpRHS(0, std::move(LHS));
+    auto res = ParseBinOpRHS(0, std::move(LHS));
+    return res;
 }
 
 std::unique_ptr<ExprAST> Parser::ParsePrimary() {
     switch (CurTok) {
         default:
-            return LogError("unknown token when expecting an expression from ParsePrimary");
+            std::clog << "tok: " << ReturnTokenString(CurTok) << std::endl;
+            return LogError("unknown token when expecting an expression from ParsePrimary -  ");
         case tok_identifier:
             return ParseIdentifierExpr();
         case tok_number:
@@ -281,6 +281,9 @@ std::unique_ptr<ExprAST> Parser::ParseBinOpRHS(int ExprPrec,
     while (true) {
         int TokPrec = GetTokenPrecedence();
 
+        // It's not binary expression anymore
+        if (TokPrec == -1)
+            return LHS;
         // If this is a binop that binds at least as tightly as the current binop,
         // consume it, otherwise we are done.
         if (TokPrec < ExprPrec)
@@ -340,16 +343,13 @@ std::unique_ptr<ExprAST> Parser::ParseIdentifierExpr() {
     if (CurTok != '(') {
         // + -
         // bap - 1;
-        if(CurTok == tok_assign) {
-            return ParseAssignmentExpr(idName);
-        }
         return std::make_unique<DeclRefAST>(idName);
     }  // Simple variable ref.
 
     // Call.
     consume(TokenType::tok_lparen);
 
-    std::vector<std::unique_ptr<AST>> Args;
+    std::vector<std::unique_ptr<ExprAST>> Args;
     if (CurTok != ')') {
         while (true) {
             if (auto Arg = ParseExpression())
@@ -379,21 +379,65 @@ std::unique_ptr<AST> Parser::ParseIfStmt() {
     if(!Cond) return nullptr;
     // It can be with begin or without begin
     std::unique_ptr<AST> Then = nullptr;
+    consume(tok_then);
     if(CurTok == tok_begin)
         Then = ParseBlock();
     else
         Then = ParseOneLineBlock();
     if(!Then) return nullptr;
+
     std::unique_ptr<AST> Else = nullptr;
 
-    if(CurTok == tok_begin)
-        Then = ParseBlock();
-    else
-        Then = ParseOneLineBlock();
-    if(!Else) return nullptr;
+    if(CurTok == tok_else) {
+        consume(tok_else);
+        if(CurTok == tok_begin)
+            Else = ParseBlock();
+        else
+            Else = ParseOneLineBlock();
+        if(!Else) return nullptr;
+    }
 
     return std::make_unique<IfStmtAST>(std::move(Cond), std::move(Then), std::move(Else));
 
+}
+
+std::unique_ptr<AST> Parser::ParseForStmt() {
+    consume(tok_for);
+
+    if(CurTok != tok_identifier) {
+        throw std::runtime_error("For loop, expected identifier");
+    }
+    std::string idName = m_Lexer.identifierStr();
+    consume(tok_identifier);
+    consume(tok_assign);
+
+    auto Start = ParseExpression();
+    std::clog << "START::::" << std::endl;
+    Start->print(std::clog);
+    std::unique_ptr<NumberExprAST> Step = nullptr;
+    std::clog << "Next expected token: " << ReturnTokenString(CurTok) << std::endl;
+    if(CurTok == tok_to) {
+        Step = std::make_unique<NumberExprAST>(1);
+        consume(tok_to);
+    }
+    else if(CurTok == tok_downto)  {
+        Step = std::make_unique<NumberExprAST>(-1);
+        consume(tok_downto);
+    }
+    else throw std::runtime_error("Excepted tok_down or tok_to");
+
+    std::unique_ptr<ExprAST> End = ParseExpression();
+
+    std::unique_ptr<AST> Body = nullptr;
+
+    consume(tok_do);
+    if(CurTok == tok_begin) {
+        Body = ParseBlock();
+        consume(tok_begin);
+    } else {
+        Body = ParseOneLineBlock();
+    }
+    return std::make_unique<ForStmtAST>(idName,std::move(Start), std::move(End), std::move(Step), std::move(Body));
 }
 
 
@@ -426,12 +470,14 @@ bool Parser::consume(int token) {
 int Parser::GetTokenPrecedence() {
 
     if (!isascii(CurTok) && CurTok != tok_mod && CurTok != tok_div && CurTok != tok_not
-        && CurTok != tok_and && CurTok != tok_xor
+        && CurTok != tok_and && CurTok != tok_xor && CurTok != tok_assign && CurTok != tok_equal
     )
         return -1;
 
     // Make sure it's a declared binop.
+//    std::clog << "Getting token precedence: " << ReturnTokenString(CurTok) << std::endl;
     int TokPrec = BinopPrecedence[CurTok];
+//    std::clog << "Precedence: " << TokPrec << std::endl;
     if (TokPrec <= 0) return -1;
     return TokPrec;
 }
@@ -478,7 +524,6 @@ const llvm::Module& Parser::Generate()
         for (auto & Arg : F->args())
             Arg.setName("x");
 
-
     }
     {
         std::vector<llvm::Type*> Ints(1, llvm::Type::getInt32PtrTy(gen.ctx));
@@ -511,3 +556,4 @@ const llvm::Module& Parser::Generate()
 
     return this->gen.module;
 }
+

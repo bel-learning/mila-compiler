@@ -1,0 +1,10 @@
+program simplefor;
+
+var I : integer;
+begin
+  for I := 1 to 5 do begin
+    writeln(I);
+  end;
+  I = I + 2;
+  writeln(I);
+end.

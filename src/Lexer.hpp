@@ -129,7 +129,10 @@ private:
         m_keywords["var"] = tok_var;
         m_keywords["integer"] = tok_integer;
         m_keywords["for"] = tok_for;
+        m_keywords["to"] = tok_to;
+        m_keywords["downto"] = tok_downto;
         m_keywords["do"] = tok_do;
+
     }
 
     std::map<std::string, TokenType> m_2char_operators;
