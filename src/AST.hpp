@@ -89,6 +89,7 @@ struct GenContext {
     llvm::IRBuilder<> builder;
     llvm::Module module;
 
+
     SymbolTable symbTable;
 };
 
@@ -452,7 +453,7 @@ public:
 
     const std::string &getName() const { return m_Name; }
 
-    void print(std::ostream &out, int indent = 0) const {
+    void print(std::ostream &out, int indent = 0) const override{
         out << std::string(indent, ' ') << "{\n";
         out << std::string(indent + 2, ' ') << "\"type\": \"PrototypeAST\",\n";
         out << std::string(indent + 2, ' ') << "\"name\": \"" << m_Name << "\",\n";
@@ -492,7 +493,7 @@ public:
     FunctionAST(std::unique_ptr<PrototypeAST> Proto, std::vector<std::unique_ptr<VarDeclAST>> Vars, std::unique_ptr<AST> Body)
             : m_Proto(std::move(Proto)), m_Vars(std::move(Vars)), m_Body(std::move(Body)) {}
 
-    void print(std::ostream &out, int indent = 0) const {
+    void print(std::ostream &out, int indent = 0) const  override {
         out << std::string(indent, ' ') << "{\n";
         out << std::string(indent + 2, ' ') << "\"type\": \"FunctionAST\",\n";
         out << std::string(indent + 2, ' ') << "\"prototype\": ";
@@ -557,6 +558,38 @@ public:
 
     };
 };
+class FunctionExitAST : public StatementAST {
+public:
+    FunctionExitAST() = default;
+
+    void print(std::ostream &out, int indent = 0) const override {
+        out << std::string(indent + 2, ' ') << "\"type\": \">Function Exit<\",\n";
+    }
+    llvm::Value * codegen(GenContext& gen) override {
+        llvm::Function *TheFunction = gen.builder.GetInsertBlock()->getParent();
+        llvm::Type *ReturnType = TheFunction->getReturnType();
+        std::string functionName = TheFunction->getName().str();
+        std::clog << "FUNCTION NAME:::" << functionName << std::endl;
+//        if (ReturnType->isVoidTy()) {
+//            gen.builder.CreateRetVoid();
+//        } else {
+//            TheFunction->get
+//            llvm::Value *RetVal = nullptr;
+//            if (m_ReturnValue) {
+//                RetVal = m_ReturnValue->codegen(gen);
+//                if (!RetVal)
+//                    return nullptr;
+//            } else {
+//                // Handle the case where a return value is expected but not provided
+//                RetVal = llvm::Constant::getNullValue(ReturnType);
+//            }
+//            gen.builder.CreateRet(RetVal);
+
+        return nullptr;
+    };
+
+};
+
 
 class IfStmtAST : public StatementAST {
     std::unique_ptr<AST> m_Cond, m_Then, m_Else;

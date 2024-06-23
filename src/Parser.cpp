@@ -210,6 +210,10 @@ std::unique_ptr<AST> Parser::ParseBlock() {
             case TokenType::tok_for:
                 body.push_back(ParseForStmt());
                 break;
+            case TokenType::tok_exit:
+                consume(tok_exit);
+                body.push_back(std::make_unique<FunctionExitAST>());
+                break;
         }
     }
     consume(tok_end);
@@ -233,6 +237,10 @@ std::unique_ptr<AST> Parser::ParseOneLineBlock() {
             return ParseIfStmt();
         case TokenType::tok_for:
             return ParseForStmt();
+        case TokenType::tok_exit:
+            consume(tok_exit);
+            return std::make_unique<FunctionExitAST>();
+            break;
         default:
             throw std::runtime_error("ParseOneLineBlock with Token: " + ReturnTokenString(CurTok));
     }
