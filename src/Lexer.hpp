@@ -82,6 +82,7 @@ enum TokenType {
     tok_dquote =        '"',
     tok_squote =        '\'',
     tok_dot =           '.',
+    tok_dollar =        '$',
 };
 
 
@@ -132,13 +133,14 @@ private:
         m_keywords["to"] = tok_to;
         m_keywords["downto"] = tok_downto;
         m_keywords["do"] = tok_do;
+        m_keywords["or"] = tok_or;
 
     }
 
     std::map<std::string, TokenType> m_2char_operators;
 
     void initialize_2char_operators() {
-        m_2char_operators["!="] = tok_notequal;
+        m_2char_operators["<>"] = tok_notequal;
         m_2char_operators["<="] = tok_lessequal;
         m_2char_operators[">="] = tok_greaterequal;
         m_2char_operators[":="] = tok_assign;
@@ -177,6 +179,7 @@ private:
         m_1char_operators['!'] = tok_exclamation;
         m_1char_operators['|'] = tok_bar;
         m_1char_operators['&'] = tok_ampersand;
+        m_1char_operators['$'] = tok_dollar;
         m_1char_operators['^'] = tok_caret;
         m_1char_operators[':'] = tok_colon;
         m_1char_operators['"'] = tok_dquote;

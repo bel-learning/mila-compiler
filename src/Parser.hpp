@@ -75,11 +75,13 @@ static std::map<char, int> BinopPrecedence = {
         {'*', 40},
         {'/', 40},
         {'=', 60},
+        {tok_notequal, 60},
         {tok_not, 5},
         {tok_mod, 40},
         {tok_div, 40},
         {tok_and, 80},
         {tok_xor, 90},
+        {tok_or, 90},
 };
 
 class Parser {

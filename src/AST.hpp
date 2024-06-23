@@ -317,10 +317,24 @@ public:
                 L = gen.builder.CreateICmpSGE(L, R, "cmptmp");
                 // Convert bool 0/1 to int 0 or 1
                 return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "booltmp");
-            case '=':
+            case tok_equal:
                 L = gen.builder.CreateICmpEQ(L, R, "cmptmp");
                 // Convert bool 0/1 to int 0 or 1
                 return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "booltmp");
+            case tok_notequal:
+                L = gen.builder.CreateICmpNE(L, R, "cmptmp");
+                // Convert bool 0/1 to int 0 or 1
+                return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "booltmp");
+            case tok_or:
+                L = gen.builder.CreateOr(L, R, "ortmp");
+                // Convert bool 0/1 to int 0 or 1
+                return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "booltmp");
+            case tok_and:
+                L = gen.builder.CreateAnd(L, R, "andtmp");
+                // Convert bool 0/1 to int 0 or 1
+                return gen.builder.CreateIntCast(L, llvm::Type::getInt32Ty(gen.ctx), false, "booltmp");
+
+
             case tok_mod:
                 return gen.builder.CreateSRem(L, R, "sremtmp");
             case tok_assign:

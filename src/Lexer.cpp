@@ -37,14 +37,28 @@ int Lexer::gettok()
         return TokenType::tok_identifier;
     } 
 
-    if (isdigit(lastChar)) {   // Number: [0-9.]+
+    if (isdigit(lastChar) || lastChar == '$' || lastChar =='&') {   // Number: [0-9.]+
         std::string numStr;
+        char numberBase = ' ';
+        if(lastChar == '$' || lastChar =='&') {
+            numberBase = lastChar;
+            lastChar = std::cin.get();
+        }
         do {
             numStr += lastChar;
             lastChar = std::cin.get();
         } while (isdigit(lastChar));
+        if(numberBase == ' ') {
+            m_NumVal = strtod(numStr.c_str(), 0);
+        }
+        else if (numberBase == '$') {
+            // Convert hexadecimal to base 10
+            m_NumVal = std::stol(numStr, nullptr, 16);
+        } else if (numberBase == '&') {
+            // Convert octal to base 10
+            m_NumVal = std::stol(numStr, nullptr, 8);
+        }
 
-        m_NumVal = strtod(numStr.c_str(), 0);
         return tok_number;
     }
     // Handle comments
