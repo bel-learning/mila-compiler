@@ -2,9 +2,9 @@ program simplefor;
 
 var I : integer;
 begin
+  I := 2;
   for I := 1 to 5 do begin
     writeln(I);
   end;
-  I = I + 2;
   writeln(I);
 end.

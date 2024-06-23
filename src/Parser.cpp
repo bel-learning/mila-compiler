@@ -97,26 +97,86 @@ std::unique_ptr<AST> Parser::ParseModule() {
         switch(CurTok) {
             case tok_dot:
                 return std::make_unique<BlockAST>( std::move(modules) );
+            case tok_procedure:
+            case tok_function:
+                modules.push_back(ParseFunction());
             case tok_semicolon:
                 getNextToken();
                 break;
-            case tok_begin:
-                modules.push_back(ParseBlock());
-                break;
-            case tok_const:
-            case tok_var:
-                modules.push_back(ParseDeclaration());
-                break;
             default:
-                std::clog << "Unexpected token" << std::endl;
-                return nullptr;
+                modules.push_back(ParseMainModule());
         }
     }
     return nullptr;
 }
 
+std::unique_ptr<AST> Parser::ParseMainModule() {
+    std::unique_ptr<PrototypeAST> prototype = std::make_unique<PrototypeAST>("main", std::vector<std::string>(), nullptr);
+    std::vector<std::unique_ptr<VarDeclAST>> vars;
+    ParseFunctionVarDeclaration(vars);
+
+    std::unique_ptr<AST> body = ParseBlock();
+    return std::make_unique<FunctionAST>(std::move(prototype), std::move(vars), std::move(body));
+}
+
 // Begin
 // End
+
+std::unique_ptr<PrototypeAST> Parser::ParsePrototype()
+{
+    int tokenType = CurTok;
+
+    consume(tok_function);
+    std::string idName = m_Lexer.identifierStr();
+    std::unique_ptr<VarDeclAST> returnValue = nullptr;
+    consume(tok_identifier);
+//    #TODO take in more than integer
+    consume('(');
+    std::vector<std::string> parameters;
+    while (CurTok != ')')
+    {
+        consume(tok_identifier);
+        parameters.push_back(m_Lexer.identifierStr());
+        consume(':');
+        consume(tok_integer);
+        consume(',');
+    }
+    consume(')');
+
+    if (tokenType == tok_function)
+    {
+        consume(':');
+        consume(tok_integer);
+        consume(';');
+        returnValue = std::make_unique<VarDeclAST>(idName, std::make_unique<TypeAST>(TypeAST::Type::INT), nullptr, false);
+        return std::make_unique<PrototypeAST>(idName, std::move(parameters), std::move(returnValue));
+    }
+    else if (tokenType == tok_procedure)
+    {
+        getNextToken(); // eat ;
+        return std::make_unique<PrototypeAST>(idName, std::move(parameters), nullptr);
+    }
+    return nullptr;
+}
+
+std::unique_ptr<AST> Parser::ParseFunction()
+{
+    std::unique_ptr<PrototypeAST> prototype =  ParsePrototype();
+    std::vector<std::unique_ptr<VarDeclAST>> variables;
+    if (CurTok == tok_forward)
+    {
+        consume(tok_forward);
+        consume(tok_semicolon);
+        return std::make_unique<FunctionAST>(std::move(prototype), std::move(variables), nullptr);
+    }
+    ParseFunctionVarDeclaration(variables);
+
+    std::unique_ptr<AST> mainBlock = ParseBlock();
+    consume(';');
+    return std::make_unique<FunctionAST>(std::move(prototype), std::move(variables),  std::move(mainBlock));
+}
+
+
 std::unique_ptr<AST> Parser::ParseBlock() {
 
     consume(TokenType::tok_begin);
@@ -172,6 +232,59 @@ std::unique_ptr<AST> Parser::ParseOneLineBlock() {
             throw std::runtime_error("ParseOneLineBlock with Token: " + ReturnTokenString(CurTok));
     }
     return nullptr;
+};
+
+void Parser::ParseFunctionVarDeclaration(std::vector<std::unique_ptr<VarDeclAST>> & vars) {
+    while (CurTok == tok_const || CurTok == tok_var) {
+        if (CurTok == tok_const) {
+            consume(tok_const);
+            // Const variable name
+            while (CurTok == tok_identifier) {
+                std::string idName = m_Lexer.identifierStr();
+                consume(tok_identifier);
+                // Todo: needs to parse multiple var with , , , ,
+                consume('=');
+
+                std::unique_ptr<ExprAST> expr = ParseExpression();
+                std::unique_ptr<TypeAST> type = std::make_unique<TypeAST>(TypeAST::Type::INT);
+
+                vars.push_back(std::make_unique<VarDeclAST>(idName,
+                                                            std::move(type),
+                                                            std::move(expr),
+                                                            true));
+                consume(';');
+            }
+        }
+        if (CurTok == tok_var) {
+            consume(tok_var);
+            // Const variable name
+            while (CurTok == tok_identifier) {
+                std::string idName = m_Lexer.identifierStr();
+                consume(tok_identifier);
+                // Todo: needs to parse multiple var with , , , ,
+                consume(':');
+
+                // Can be extended
+                TypeAST::Type typeValue;
+                if (CurTok == tok_integer) {
+                    typeValue = TypeAST::Type::INT;
+                }
+                consume(tok_integer);
+
+                std::unique_ptr<TypeAST> type = std::make_unique<TypeAST>(typeValue);
+
+                std::unique_ptr<ExprAST> expr = nullptr;
+
+                vars.push_back(std::make_unique<VarDeclAST>(idName,
+                                                            std::move(type),
+                                                            std::move(expr),
+                                                            false));
+                consume(';');
+            }
+        }
+    }
+
+    return;
 };
 
 // CONST block -> VAR block, Func declare
@@ -439,6 +552,11 @@ std::unique_ptr<AST> Parser::ParseForStmt() {
     }
     return std::make_unique<ForStmtAST>(idName,std::move(Start), std::move(End), std::move(Step), std::move(Body));
 }
+
+std::unique_ptr<AST> Parser::ParseWhileStmt() {
+
+};
+
 
 
 /**

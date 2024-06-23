@@ -113,8 +113,12 @@ private:
     //      -> BLOCK of one line expressions
     //            -> Assignment
     //            -> one line expression (function call, etc...)
+    std::unique_ptr<AST> ParseFunction();
+    std::unique_ptr<PrototypeAST> ParsePrototype();
+    void ParseFunctionVarDeclaration(std::vector<std::unique_ptr<VarDeclAST>> & vars);
 
     std::unique_ptr<AST> ParseModule();
+    std::unique_ptr<AST> ParseMainModule();
 
     std::unique_ptr<AST> ParseDeclaration(); // can be definition as well
     std::unique_ptr<AST> ParseBlock();
@@ -133,6 +137,7 @@ private:
 
     std::unique_ptr<AST> ParseIfStmt();
     std::unique_ptr<AST> ParseForStmt();
+    std::unique_ptr<AST> ParseWhileStmt();
     int GetTokenPrecedence();
 
     void PrintToken(int token);

@@ -45,26 +45,34 @@ public:
         pages.pop_front();
     }
     Symbol * search(const std::string & var) {
-       for(auto it = pages.begin(); it != pages.end(); it++) {
-           std::map<std::string, Symbol> & page = *it;
-           auto searchIter = page.find(var);
-           if(searchIter != page.end()) {
-               return &page.at(var);
-           }
-       }
+        for(auto it = pages.begin(); it != pages.end(); it++) {
+            std::map<std::string, Symbol> & page = *it;
+            auto searchIter = page.find(var);
+            if(searchIter != page.end()) {
+                return &page.at(var);
+            }
+        }
 
-       return nullptr;
+        return nullptr;
     }
+    bool exists (const std::string & var) {
+        if(pages.front().find(var) == pages.front().end()) return false;
+        return true;
+    }
+
     Symbol & operator [] (const std::string & var) {
         return pages.front()[var];
     }
     void erase(const std::string & var) {
         pages.front().erase(var);
     }
-
+    void clear() {
+        pages.front().clear();
+    }
 
     std::deque<std::map<std::string, Symbol> > pages;
 };
+//using std::map<std::string, Symbol> symbTable;
 
 struct GenContext {
     GenContext(const std::string& moduleName) : ctx(), builder(ctx), module(moduleName, ctx) {};
@@ -198,7 +206,7 @@ class VarDeclAST : public StatementAST {
     bool m_constant;
 public:
     VarDeclAST(std::string var, std::unique_ptr<TypeAST> type, std::unique_ptr<ExprAST> expr, bool constant) :
-        m_var(var), m_type(std::move(type)), m_expr(std::move(expr)), m_constant(constant) {};
+            m_var(var), m_type(std::move(type)), m_expr(std::move(expr)), m_constant(constant) {};
     void print(std::ostream &out, int indent = 0) const override {
         out << std::string(indent, ' ') << "{\n";
         out << std::string(indent + 2, ' ') << "\"type\": \"VarDeclAST\",\n";
@@ -367,8 +375,6 @@ public:
 
         std::vector<llvm::Value *> argsV;
         for (unsigned i = 0; i < Args.size(); ++i) {
-            std::clog << "Parsing argument: " << std::endl;
-            Args[i]->print(std::clog);
 
             llvm::Value *argValue = Args[i]->codegen(gen);
 
@@ -401,13 +407,13 @@ public:
 /// PrototypeAST - This class represents the "prototype" for a function,
 /// which captures its name, and its argument names (thus implicitly the number
 /// of arguments the function takes).
-class PrototypeAST  {
+class PrototypeAST : StatementAST  {
     std::string m_Name;
     std::vector<std::string> m_Args;
-
+    std::unique_ptr<VarDeclAST> m_Return;
 public:
-    PrototypeAST(const std::string &Name, std::vector<std::string> Args)
-            : m_Name(Name), m_Args(std::move(Args)) {}
+    PrototypeAST(const std::string &Name, std::vector<std::string> Args, std::unique_ptr<VarDeclAST> Return)
+            : m_Name(Name), m_Args(std::move(Args)), m_Return(std::move(Return)) {}
 
     const std::string &getName() const { return m_Name; }
 
@@ -424,7 +430,11 @@ public:
     }
     llvm::Function * codegen(GenContext& gen)  {
         std::vector<llvm::Type *> INTS(m_Args.size(), llvm::Type::getInt32Ty(gen.ctx));
-        llvm::FunctionType * FT = llvm::FunctionType::get(llvm::Type::getInt32Ty(gen.ctx), INTS ,false);
+        llvm::FunctionType * FT = nullptr;
+        if(m_Return == nullptr)
+            FT = llvm::FunctionType::get(llvm::Type::getVoidTy(gen.ctx), INTS ,false);
+        else
+            FT = llvm::FunctionType::get(llvm::Type::getInt32Ty(gen.ctx), INTS ,false);
         llvm::Function *F =
                 llvm::Function::Create(FT, llvm::Function::ExternalLinkage, m_Name, gen.module);
 
@@ -440,11 +450,12 @@ public:
 /// FunctionAST - This class represents a function definition itself.
 class FunctionAST : public StatementAST {
     std::unique_ptr<PrototypeAST> m_Proto;
+    std::vector<std::unique_ptr<VarDeclAST>> m_Vars;
     std::unique_ptr<AST> m_Body;
 
 public:
-    FunctionAST(std::unique_ptr<PrototypeAST> Proto, std::unique_ptr<AST> Body)
-            : m_Proto(std::move(Proto)), m_Body(std::move(Body)) {}
+    FunctionAST(std::unique_ptr<PrototypeAST> Proto, std::vector<std::unique_ptr<VarDeclAST>> Vars, std::unique_ptr<AST> Body)
+            : m_Proto(std::move(Proto)), m_Vars(std::move(Vars)), m_Body(std::move(Body)) {}
 
     void print(std::ostream &out, int indent = 0) const {
         out << std::string(indent, ' ') << "{\n";
@@ -458,18 +469,33 @@ public:
     }
     llvm::Value * codegen(GenContext& gen) override {
         llvm::Function *TheFunction = gen.module.getFunction(m_Proto->getName());
-
+        std::clog << "Codegening: " << m_Proto->getName() << std::endl;
         if (!TheFunction)
             TheFunction = m_Proto->codegen(gen);
-        if (!TheFunction)
-            return nullptr;
-        if (!TheFunction->empty())
-            throw std::runtime_error("Function cannot be redefined");
 
-        llvm::BasicBlock * BB = llvm::BasicBlock::Create(gen.ctx, "entry", TheFunction);
+        if(m_Proto->getName() == "main") {
+            llvm::BasicBlock *BB = llvm::BasicBlock::Create(gen.ctx, "entry", TheFunction);
+            gen.builder.SetInsertPoint(BB);
+            gen.symbTable.pages.clear();
+
+            for (auto &variable : m_Vars)
+            {
+                variable->codegen(gen);
+            }
+
+            m_Body->codegen(gen);
+            // return 0
+            gen.builder.CreateRet(llvm::ConstantInt::get(llvm::Type::getInt32Ty(gen.ctx), 0));
+            return TheFunction;
+        }
+
+        llvm::BasicBlock * BB = llvm::BasicBlock::Create(gen.ctx, m_Proto->getName(), TheFunction);
 
         gen.builder.SetInsertPoint(BB);
-
+        gen.symbTable.clear();
+        // Create return value
+        llvm::AllocaInst *AllocaReturnVar = gen.builder.CreateAlloca(llvm::Type::getInt32Ty(gen.ctx), nullptr, m_Proto->getName());
+        gen.symbTable[std::string(m_Proto->getName())] = {AllocaReturnVar};
         for (auto &Arg : TheFunction->args()) {
             // Create an alloca for this variable
             llvm::AllocaInst *Alloca = gen.builder.CreateAlloca(Arg.getType(), nullptr, Arg.getName());
@@ -480,11 +506,12 @@ public:
         }
 
         // Generate code for the function body
-        if (llvm::Value *RetVal = m_Body->codegen(gen)) {
+        if ( m_Body->codegen(gen)) {
             // If the function has a non-void return type, generate the return instruction
             if (TheFunction->getReturnType()->isVoidTy()) {
                 gen.builder.CreateRetVoid();
             } else {
+                llvm::Value *RetVal = AllocaReturnVar;
                 gen.builder.CreateRet(RetVal);
             }
 
@@ -496,6 +523,7 @@ public:
 
         // Error reading body, remove the function
         TheFunction->eraseFromParent();
+
         return nullptr;
 
     };
@@ -596,25 +624,43 @@ public:
 
         // Make the new basic block for the loop header, inserting after current
 // block.
-        llvm::Function *TheFunction = gen.builder.GetInsertBlock()->getParent();
-        llvm::BasicBlock *PreheaderBB = gen.builder.GetInsertBlock();
-        llvm::BasicBlock *LoopBB =
-                llvm::BasicBlock::Create(gen.ctx, "loop", TheFunction);
+        llvm::AllocaInst * VariableAlloca = gen.symbTable.search(m_Var)->store;
+        gen.builder.CreateStore(StartVal, VariableAlloca);
 
-        gen.builder.CreateBr(LoopBB);
+        llvm::Function *TheFunction = gen.builder.GetInsertBlock()->getParent();
+
+        llvm::BasicBlock *ConditionBB =
+                llvm::BasicBlock::Create(gen.ctx);
+        llvm::BasicBlock *LoopBB =
+                llvm::BasicBlock::Create(gen.ctx);
+        llvm::BasicBlock *ExitBB = llvm::BasicBlock::Create(gen.ctx);
+
+        gen.builder.CreateBr(ConditionBB);
+        gen.builder.SetInsertPoint(ConditionBB);
+
+//        For I := 0 to 20 do then
+//        m_End = <ExprAST>(20)
+        llvm::Value *EndCond = m_End->codegen(gen);
+        if (!EndCond)
+            return nullptr;
+
+        // Convert condition to a bool by comparing non-equal to 0.0.
+        TheFunction->getBasicBlockList().push_back(ConditionBB);
+
+        VariableAlloca = gen.symbTable.search(m_Var)->store;
+        llvm::Value * VariableValue = gen.builder.CreateLoad(llvm::Type::getInt32Ty(gen.ctx), VariableAlloca);
+        llvm::Value * condition = gen.builder.CreateICmpSLE(
+                VariableValue, EndCond
+        );
+
+        gen.builder.CreateCondBr(condition, LoopBB, ExitBB);
+
+        TheFunction->getBasicBlockList().push_back(LoopBB);
 
         gen.builder.SetInsertPoint(LoopBB);
 
-        llvm::PHINode * Variable = gen.builder.CreatePHI(llvm::Type::getInt32Ty(gen.ctx), 2, m_Var);
-        Variable->addIncoming(StartVal, PreheaderBB);
+        m_Body->codegen(gen);
 
-        llvm::Value * oldVal = gen.symbTable.search(m_Var)->store;
-        llvm::AllocaInst *Alloca = gen.builder.CreateAlloca(StartVal->getType(), nullptr, m_Var);
-        // Store the initial value into the alloca.
-        gen.builder.CreateStore(StartVal, Alloca);
-
-        if (!m_Body->codegen(gen))
-            return nullptr;
 
         llvm::Value *StepVal = nullptr;
         if (m_Step) {
@@ -622,39 +668,69 @@ public:
             if (!StepVal)
                 return nullptr;
         }
-        llvm::Value * NextVal = gen.builder.CreateAdd(Variable, StepVal, "nextvar");
+        VariableAlloca = gen.symbTable.search(m_Var)->store;
+        VariableValue = gen.builder.CreateLoad(llvm::Type::getInt32Ty(gen.ctx), VariableAlloca);
+        llvm::Value * NextVal = gen.builder.CreateAdd(VariableValue, StepVal, "nextvar");
+        gen.builder.CreateStore(NextVal, VariableAlloca);
 
-        // Compute the end condition.
-        llvm::Value *EndCond = m_End->codegen(gen);
-        if (!EndCond)
-            return nullptr;
+        gen.builder.CreateBr(ConditionBB);
 
-        // Convert condition to a bool by comparing non-equal to 0.0.
 
-        EndCond = gen.builder.CreateICmpEQ(
-                EndCond, NextVal, "loopcmp"
-                );
-
-        // Create the "after loop" block and insert it.
-        llvm::BasicBlock *LoopEndBB = gen.builder.GetInsertBlock();
-        llvm::BasicBlock *AfterBB =
-                llvm::BasicBlock::Create(gen.ctx, "afterloop", TheFunction);
-
-        gen.builder.CreateCondBr(EndCond, LoopBB, AfterBB);
-        gen.builder.SetInsertPoint(AfterBB);
-
-        // Add a new entry to the PHI node for the backedge.
-        Variable->addIncoming(NextVal, LoopEndBB);
-
-        // Restore the unshadowed variable.
-        if (oldVal)
-            gen.symbTable[m_Var] = {Alloca};
-        else
-            gen.symbTable.erase(m_Var);
+        TheFunction->getBasicBlockList().push_back(ExitBB);
+        gen.builder.SetInsertPoint(ExitBB);
 
         return nullptr;
     };
 };
+
+class WhileStmtAST : public StatementAST {
+    std::unique_ptr<ExprAST> m_Cond;
+    std::unique_ptr<AST> m_Body;
+
+public:
+    WhileStmtAST(std::unique_ptr<ExprAST> cond, std::unique_ptr<AST> body)
+            : m_Cond(std::move(cond)), m_Body(std::move(body)) {}
+
+    void print(std::ostream &out, int indent = 0) const override {
+        out << std::string(indent, ' ') << "{\n";
+        out << std::string(indent + 2, ' ') << "\"type\": \"WHILE\",\n";
+        m_Cond->print(out, indent + 2);
+        m_Body->print(out, indent + 2);
+        out << std::string(indent, ' ') << "}";
+    }
+
+    llvm::Value *codegen(GenContext &gen) override {
+        llvm::Function *TheFunction = gen.builder.GetInsertBlock()->getParent();
+
+        llvm::BasicBlock *CondBB = llvm::BasicBlock::Create(gen.ctx, "whilecond", TheFunction);
+        llvm::BasicBlock *LoopBB = llvm::BasicBlock::Create(gen.ctx, "whileloop");
+        llvm::BasicBlock *ExitBB = llvm::BasicBlock::Create(gen.ctx, "whileexit");
+
+        gen.builder.CreateBr(CondBB);
+        gen.builder.SetInsertPoint(CondBB);
+
+        llvm::Value *CondV = m_Cond->codegen(gen);
+        if (!CondV)
+            return nullptr;
+
+        CondV = gen.builder.CreateICmpNE(CondV, llvm::ConstantInt::get(CondV->getType(), 0, true), "whilecond");
+        gen.builder.CreateCondBr(CondV, LoopBB, ExitBB);
+
+        TheFunction->getBasicBlockList().push_back(LoopBB);
+        gen.builder.SetInsertPoint(LoopBB);
+
+        if (!m_Body->codegen(gen))
+            return nullptr;
+
+        gen.builder.CreateBr(CondBB);
+
+        TheFunction->getBasicBlockList().push_back(ExitBB);
+        gen.builder.SetInsertPoint(ExitBB);
+
+        return nullptr;
+    }
+};
+
 
 
 
