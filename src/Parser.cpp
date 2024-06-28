@@ -89,6 +89,7 @@ bool Parser::Parse()
     consume(TokenType::tok_dot);
     return true;
 }
+
 std::unique_ptr<AST> Parser::ParseModule() {
     // Expressions or BLOCK
     std::vector<std::unique_ptr<AST>> modules;

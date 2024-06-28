@@ -6,7 +6,7 @@
 
 BlockAST::BlockAST(std::vector<std::unique_ptr<AST>> body) : m_Body(std::move(body)) {}
 
-void BlockAST::print(std::ostream &out, int indent = 0) const {
+void BlockAST::print(std::ostream &out, int indent) const {
     out << std::string(indent, ' ') << "{\n";
     for (const auto &stmt : m_Body) {
         if(!stmt)
@@ -422,7 +422,7 @@ llvm::Value * FunctionAST::codegen(GenContext& gen)  {
 void FunctionExitAST::print(std::ostream &out, int indent ) const {
     out << std::string(indent + 2, ' ') << "\"type\": \">Function Exit<\",\n";
 }
-    llvm::Value * FunctionExitAST::codegen(GenContext& gen) {
+llvm::Value * FunctionExitAST::codegen(GenContext& gen) {
     llvm::Function *TheFunction = gen.builder.GetInsertBlock()->getParent();
     llvm::Type *ReturnType = TheFunction->getReturnType();
     std::string functionName = TheFunction->getName().str();

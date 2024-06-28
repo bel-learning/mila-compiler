@@ -3,6 +3,7 @@ program gcd;
 function gcdi(a: integer; b: integer): integer;
 var tmp: integer;
 begin
+
     while b <> 0 do
     begin
         tmp := b;
@@ -15,6 +16,7 @@ end;
 function gcdr(a: integer; b: integer): integer;
 var tmp: integer;
 begin
+
     tmp := a mod b;
     if tmp = 0 then
     begin
@@ -26,6 +28,9 @@ end;
 
 function gcdr_guessing_inner(a: integer; b: integer; c: integer): integer;
 begin
+    writeln(a);
+    writeln(b);
+    writeln(c);
     if ((a mod c) = 0) and ((b mod c) = 0) then
     begin
         gcdr_guessing_inner := c;

@@ -16,7 +16,7 @@ int Lexer::gettok()
         lastChar = std::cin.get();
     }
 
-    //
+    // Identifier
     if (isalpha(lastChar ) || lastChar == '_' ) { // identifier: [a-zA-Z_-][a-zA-Z0-9_-]*
         std::string identifierStr;
         identifierStr += lastChar;
@@ -61,6 +61,7 @@ int Lexer::gettok()
 
         return tok_number;
     }
+
     // Handle comments
     if (lastChar == '#') {
         // Comment until end of line.
